@@ -1,0 +1,23 @@
+# Build and simulation outputs
+*.vcd
+*.fsdb
+*.vpd
+*.wlf
+work/
+csrc/
+simv*
+ucli.key
+
+# Traces and datasets
+traces/
+datasets/
+
+# Python environments and caches
+.venv/
+__pycache__/
+
+# OS files
+.DS_Store
+
+# Bulk artifacts
+bulk/
