@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ISE-Based Model Protection for RISC-V AI Accelerators</title>
+<!--
+  Source of docs/proposal/proposal.pdf.
+  Build: ~/tools/venvs/pdf/bin/weasyprint docs/proposal/source/proposal.html docs/proposal/proposal.pdf
+  Revision of 2026-10-16: tool flow adapted to the lab workstation (VCS, Genus,
+  Joules, TSMC 65 nm LP). The original Oct 3 version is in git history (commit b7196a1).
+-->
+<style>
+  @page {
+    size: A4;
+    margin: 22mm 22mm 20mm 22mm;
+    @top-left { content: "ISE-Based Model Protection for RISC-V AI Accelerators"; font: 7pt "Liberation Sans", sans-serif; color: #666; }
+    @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 7pt "Liberation Sans", sans-serif; color: #666; }
+  }
+  body { font-family: "Liberation Sans", "DejaVu Sans", sans-serif; font-size: 10.5pt; line-height: 1.5; color: #1f1f1f; }
+  h1, h2 { font-family: "Liberation Serif", "DejaVu Serif", serif; font-weight: normal; color: #111; }
+  h1 { font-size: 25pt; line-height: 1.15; margin: 0 0 10pt 0; }
+  h2 { font-size: 16pt; margin: 20pt 0 8pt 0; page-break-after: avoid; }
+  p { margin: 0 0 8pt 0; }
+  ul, ol { margin: 0 0 8pt 0; padding-left: 18pt; }
+  li { margin-bottom: 2pt; }
+  a { color: #2a6bc4; }
+  .chips { margin: 0 0 14pt 0; }
+  .chip { display: inline-block; background: #efefec; border-radius: 8pt; padding: 1pt 6pt; font-size: 9pt; }
+  .note { background: #eef4fb; border-left: 3pt solid #2a6bc4; padding: 6pt 9pt; font-size: 9.5pt; margin: 0 0 12pt 0; }
+  table { width: 100%; border-collapse: collapse; margin: 4pt 0 12pt 0; font-size: 9.5pt; page-break-inside: auto; }
+  tr { page-break-inside: avoid; }
+  th, td { border: 0.6pt solid #d8d8d4; padding: 4pt 6pt; vertical-align: top; text-align: left; }
+  th { background: #f4f4f1; font-weight: normal; color: #444; }
+  .new { background: #f3f8ee; }
+  figure { margin: 6pt 0 10pt 0; page-break-inside: avoid; }
+  figure img { width: 100%; }
+  figcaption { font-size: 9pt; color: #555; margin-top: 4pt; }
+  code { white-space: nowrap; }
+  pre { background: #f4f4f1; border-radius: 4pt; padding: 6pt 8pt; font-family: "DejaVu Sans Mono", monospace; font-size: 8.5pt; white-space: pre-wrap; margin: 0 0 6pt 0; }
+</style>
+</head>
+<body>
+
+<h1>ISE-Based Model Protection for RISC-V AI Accelerators</h1>
+<div class="chips"><span class="chip">Oct 3, 2026</span> · <span class="chip">@gaurav</span> · <span class="chip">Revised Oct 16, 2026: tool flow</span></div>
+
+<p class="note"><b>Revision note (Oct 16, 2026).</b> The research question, design and experiments are unchanged.
+The tool flow is adapted to what is installed and licensed on the lab workstation: Synopsys VCS replaces
+QuestaSim for RTL simulation, and Cadence Genus and Joules with the TSMC 65 nm LP standard-cell library give
+area, Fmax and power without an FPGA. See <i>Tool flow on the lab workstation</i>. The FPGA (Vivado) plan is unchanged.</p>
+
+<h2>Summary</h2>
+<p>We propose using the host CPU's own AES <b>instruction-set extension (ISE)</b> to give <b>confidentiality and integrity</b>
+to neural-network model data on a RISC-V SoC with <b>PULP multi-cluster accelerators</b>, instead of sending all model data
+through the SoC's <b>dedicated security engine</b>.</p>
+<p>The research question is the trade-off: how much area the ISE adds to the host core, how its model-load latency and CPU
+cost compare with the security engine, and for which model sizes, reload rates and cluster counts each is the better design point.</p>
+<p>The design authenticates <b>weights, layer descriptors and kernel code</b> (not weights alone). It is evaluated against
+<b>RowHammer-style bit-flip attacks</b> and <b>power side-channel leakage</b> of the AES instruction.</p>
+<p><b>Platform:</b> a <a href="https://github.com/pulp-platform/carfield">Carfield</a>-style open-source SoC from the PULP platform:
+a <b>CVA6</b> RV64 host running the standard Zkne AES instructions, <b>PULP compute clusters</b> (a 12-core integer cluster with
+the RedMulE matrix engine, and a Spatz vector cluster) that pull data into their L1 scratchpads by DMA, and an
+<b>OpenTitan-derived security island</b> with AES and SHA-2/HMAC engines that also holds keys and runs secure boot.</p>
+<p><b>Tools:</b> RTL simulation in <b>Synopsys VCS</b>; area, Fmax and power from <b>Cadence Genus and Joules</b> on the
+<b>TSMC 65 nm LP</b> standard-cell library; functional runs in Spike. All are available on the lab workstation.</p>
+
+<h2>Background and motivation</h2>
+<p>Edge AI models are valuable IP and often safety-critical, yet they sit in <b>off-chip DRAM</b>, which the attacker can read and disturb. Two threats target them.</p>
+<ul>
+  <li><b>Confidentiality (model extraction).</b> Weights can be stolen by bus snooping if stored in plaintext, or through power/EM side channels.
+  <a href="https://www.usenix.org/conference/usenixsecurity25/presentation/horvath">BarraCUDA</a> (USENIX Security 2025) recovered weights from Jetson edge GPUs via EM leakage.</li>
+  <li><b>Integrity (bit-flip attacks).</b> RowHammer can flip bits in stored models. One flip can plant a backdoor
+  (<a href="https://openaccess.thecvf.com/content/ICCV2025/papers/Li_Backdoor_Attacks_on_Neural_Networks_via_One-Bit_Flip_ICCV_2025_paper.pdf">SoleFlip</a>, ICCV 2025).
+  <a href="https://www.ndss-symposium.org/ndss-paper/compiled-models-built-in-exploits-uncovering-pervasive-bit-flip-attack-surfaces-in-dnn-executables/">Structure-based bit flips</a>
+  in model code and layer settings (NDSS 2025) bypass weight-only defenses.</li>
+</ul>
+<p>Existing defenses fall into two groups:</p>
+<table>
+  <tr><th>Approach</th><th>Examples</th><th>Limitation for small edge cores</th></tr>
+  <tr><td>Dedicated inline crypto engine (AES-CTR/GCM + MAC between memory and accelerator)</td><td><a href="https://arxiv.org/pdf/2008.11632">GuardNN</a> (DAC 2022), <a href="https://arxiv.org/html/2508.18924">SeDA</a> (DAC 2025), AccShield (DAC 2023)</td><td>Extra area and control logic, always present</td></tr>
+  <tr><td>Software integrity checks (hashes, checksums)</td><td><a href="https://dl.acm.org/doi/10.1145/3555808">AccHashtag</a>, <a href="https://www.ndss-symposium.org/wp-content/uploads/2025-1463-paper.pdf">BitShield</a> (NDSS 2025)</td><td>No confidentiality; slow without hardware help</td></tr>
+</table>
+<p>Meanwhile, RISC-V already has a ratified <a href="https://docs.riscv.org/reference/isa/unpriv/scalar-crypto.html">scalar crypto extension</a> (Zkn/Zkne) with AES round instructions.
+It requires constant-time execution but makes no promise about power leakage.</p>
+<p><b>The gap:</b> no work we found uses a CPU crypto ISE to protect model data for accelerator clusters that share on-chip memory with the host,
+and no work measures its area and latency against the SoC's own security engine at edge scale.</p>
+
+<h2>Problem statement and threat model</h2>
+<p><b>Problem statement.</b> On a RISC-V SoC with a CVA6 host, PULP accelerator clusters and an on-chip security engine, can confidential and
+authenticated model loading be built from the host's crypto ISE instead of the security engine — and under which conditions (model size,
+reload frequency, number of clusters, area budget) is it the better design point?</p>
+<table>
+  <tr><th style="width:28%">Element</th><th>Definition in this work</th></tr>
+  <tr><td>Assets</td><td>Model weights, layer descriptors (shapes, strides, quantization scales, activation type), kernel code, model key</td></tr>
+  <tr><td>Attacker can</td><td>Read and modify off-chip DRAM, including RowHammer bit flips; passively observe power/EM during execution</td></tr>
+  <tr><td>Trusted (TCB)</td><td>CVA6 pipeline and register file, the on-chip L2 scratchpad, the clusters' L1 scratchpads (TCDM), the key register, and the security island, which provisions the key and reference tags at secure boot</td></tr>
+  <tr><td>Out of scope</td><td>Invasive and laser attacks, clock/voltage glitching, software exploits, denial of service (we detect, not correct)</td></tr>
+</table>
+<p><b>Security goals.</b></p>
+<ol>
+  <li>Confidentiality of model data in DRAM — AES in counter (CTR) mode.</li>
+  <li>Integrity and authenticity — a MAC tag per protected block, checked with encrypt-then-MAC.</li>
+  <li>Verify-before-use — a cluster only consumes data that passed the check, closing the time-of-check-to-time-of-use (TOCTOU) window.</li>
+  <li>Side-channel resistance of key-dependent operations — the AES ISE must not leak the model key through power (first-order masking).</li>
+</ol>
+<p>Freshness (rollback to an older model) is an open scoping question; see the advisor points below.</p>
+
+<h2>Scope</h2>
+<table>
+  <tr><th style="width:22%">Category</th><th>Items</th></tr>
+  <tr><td>In scope</td><td>Carfield-style SoC: CVA6 host with standard Zkne AES instructions; the PULP integer cluster (with RedMulE) and Spatz vector cluster as NN accelerators;
+  the OpenTitan-derived security island as root of trust and engine baseline; AES-CTR + CMAC model loader in RISC-V assembly on CVA6; protection of weights,
+  layer descriptors and kernel code; simulated bit-flip campaign; area (65 nm ASIC synthesis) and latency comparison against baselines; first-order leakage
+  assessment (TVLA, CPA) in simulation (VCS toggle counts and Joules per-cycle power)</td></tr>
+  <tr><td>Stretch goals</td><td>First-order masked ISE (RSM, then DOM); FPGA power-trace validation; Zkne on the cluster cores so each cluster decrypts its own tiles in parallel;
+  a row-activation throttle at the cluster DMA port (accelerator as RowHammer aggressor)</td></tr>
+  <tr><td>Out of scope</td><td>Real RowHammer on hardware; clock/voltage glitching and laser faults; protecting weights during computation; OS and software exploits; LLM-scale models</td></tr>
+</table>
+
+<h2>Platform</h2>
+<p>We build on published, open-source generators rather than a hand-made core, so results are reproducible and comparable with prior work.</p>
+<table>
+  <tr><th style="width:18%">Part</th><th style="width:42%">What we use</th><th>Why</th></tr>
+  <tr><td>SoC</td><td><a href="https://github.com/pulp-platform/carfield">Carfield</a> (PULP platform, ETH Zurich and University of Bologna), built around the Cheshire host</td><td>Open source (Solderpad licence); already combines a CVA6 host, accelerator clusters and a security island; FPGA flow on the Xilinx VCU128</td></tr>
+  <tr><td>CPU + AES ISE</td><td><a href="https://docs.openhwfoundation.org/projects/cva6-user-manual/01_cva6_user/Parameters_Configuration.html">CVA6</a> RV64 core with its ZKN (scalar crypto) parameter enabled</td><td>Standard Zkne instructions (aes64es/aes64esm) instead of a custom opcode, so results compare directly with prior Zkne work</td></tr>
+  <tr><td>AI accelerators</td><td>PULP integer cluster: 12 RV32 cores with DSP/QNN extensions, a shared L1 scratchpad (TCDM), a DMA and the <a href="https://arxiv.org/pdf/2301.03904">RedMulE</a> matrix engine; plus the Spatz RVV vector cluster</td><td>Multi-cluster offload: the host hands work to each cluster, which pulls its tiles from L2 by DMA — the common pattern in edge SoCs</td></tr>
+  <tr><td>Security engine (baseline and root of trust)</td><td>OpenTitan-derived security island: Ibex core, AES-128 and SHA-2/HMAC engines, key storage, secure boot; reached through mailboxes</td><td>Already on chip; AES measured at about 16 cycles/byte from system RAM on a CVA6 + PULP + OpenTitan SoC (<a href="https://arxiv.org/pdf/2402.10395">CF 2024</a>)</td></tr>
+  <tr class="new"><td>Simulation</td><td>Synopsys VCS U-2023.03 for cycle counts: CVA6 and the Cheshire host domain through their official VCS flows, and full Carfield (clusters and security island) through a Bender-generated VCS build; Spike for functional runs of the CVA6 loader</td><td>Licensed on the lab workstation; host, clusters and security island timed in one model. Carfield upstream supports only QuestaSim, which the lab does not have</td></tr>
+  <tr class="new"><td>Synthesis and power</td><td>Cadence Genus 25.1 (Synopsys Design Compiler as a cross-check) with the TSMC 65 nm LP standard-cell library; Cadence Joules 25.1 for per-cycle power from VCS activity</td><td>Licensed on the lab workstation; gives area (µm², kGE), Fmax and power traces without an FPGA</td></tr>
+</table>
+
+<h2>Tool flow on the lab workstation</h2>
+<p>Every tool below was checked on the lab workstation (RHEL 9, 64 threads, 30 GiB RAM) on Oct 16, 2026.</p>
+<table class="new-table">
+  <tr><th style="width:17%">Need</th><th style="width:20%">Original plan</th><th style="width:27%">On the lab workstation</th><th>Status</th></tr>
+  <tr><td>RTL simulation (SoC, cycle counts)</td><td>QuestaSim (Carfield's only supported simulator)</td><td>Synopsys VCS U-2023.03</td><td>Licensed and tested. Cheshire and CVA6 have official VCS flows; full Carfield needs a VCS port (Bender emits the compile script). Cadence Xcelium licences exist, but the tool is not installed</td></tr>
+  <tr><td>Functional ISA simulation</td><td>Spike</td><td>Spike, user-local build</td><td>To install (needs <code>dtc</code>)</td></tr>
+  <tr><td>Hardware IP management</td><td>Bender</td><td>Bender 0.32.1, user-local</td><td>Installed</td></tr>
+  <tr><td>CVA6 cross-compiler</td><td>RISC-V GCC with Zkne</td><td>xPack riscv-none-elf-gcc 15.2.0</td><td>Installed by the lab; <code>-march=rv64gc_zkne</code> verified</td></tr>
+  <tr><td>Cluster software</td><td>PULP GCC (Xpulp), Spatz LLVM</td><td>User-local installs</td><td>Needed in phase 2</td></tr>
+  <tr><td>Area and Fmax</td><td>FPGA (VCU128) LUTs/FFs</td><td>Genus 25.1 / DC T-2022.03 on TSMC 65 nm LP (tcbn65lp, all corners); Innovus 25.1 for post-layout</td><td>Licensed and tested; FPGA stays a stretch goal</td></tr>
+  <tr><td>Power traces for TVLA/CPA</td><td>Toggle counts in simulation, then FPGA traces</td><td>VCS toggle counts (VCD) and Joules 25.1 time-based power on the 65 nm netlist</td><td>Licensed and tested</td></tr>
+  <tr><td>Waveforms, equivalence</td><td>—</td><td>VCS DVE; Formality X-2025.06 (masked vs unmasked round)</td><td>Available</td></tr>
+</table>
+<p>The TSMC library is under the foundry NDA: its files stay on the workstation, and only derived numbers (area, timing, power) are reported.</p>
+
+<p><b>Other platforms considered.</b></p>
+<table>
+  <tr><th style="width:26%">Candidate</th><th style="width:24%">Coupling to the CPU</th><th>Why not chosen</th></tr>
+  <tr><td>Chipyard: Rocket + Gemmini (earlier choice)</td><td>Tight: RoCC custom instructions</td><td>Good Zkne support, but one tightly coupled accelerator and no on-chip security engine to compare against</td></tr>
+  <tr><td>NVDLA (NVIDIA open-source DLA)</td><td>Loose: memory-mapped registers + DMA</td><td>Large; no RISC-V host ISE path or security engine in the open release</td></tr>
+  <tr><td>VTA (Apache TVM)</td><td>Loose: host-driven FPGA design</td><td>Good compiler flow, but no RISC-V ISE path</td></tr>
+  <tr><td>Our own 5-stage core + custom MAC unit</td><td>Tight</td><td>Full control, but not a recognized baseline; reviewers may doubt the numbers</td></tr>
+</table>
+<p><b>Design issue this platform raises.</b> Each cluster fetches tiles into its L1 scratchpad with its own DMA, from L2 or HyperRAM, not from the host's registers.
+So CVA6 writes each verified, decrypted tile into the on-chip L2 scratchpad (a scratchpad, not a cache, so it cannot be evicted to DRAM) and only then hands it
+to a cluster. Two questions follow, and we measure both: other bus masters (the other cluster, the safety island) must not read or overwrite that L2 region
+between check and use, and one host core must keep up with several clusters at once.</p>
+
+<h2>Proposed approach: ISE-based authenticated model loading</h2>
+<p>The host CPU (CVA6) verifies and decrypts every model block with its own AES instruction before any cluster may use it.</p>
+<figure>
+  <img src="figures/fig_ise_path.png" alt="Proposed ISE path: HyperRAM, load block into L2, CVA6 Zkne CMAC check and CTR decrypt, tag check, PULP cluster; baseline through the security island">
+  <figcaption>proposed ISE path on CVA6 vs the security-island baseline</figcaption>
+</figure>
+<p>A cluster only runs on blocks whose tag matched, and each layer is loaded and verified again just before it runs.</p>
+<p><b>Protocol per block</b> (encrypt-then-MAC):</p>
+<ol>
+  <li>Copy the encrypted block C and its tag T from HyperRAM into a working buffer in the on-chip L2 scratchpad.</li>
+  <li>Compute T′ = CMAC under key K2 over (block index, model version, C) using the AES instruction, and compare with T in constant time.</li>
+  <li>If T′ does not match, trap and reject the model.</li>
+  <li>Otherwise decrypt in place: P = C XOR AES under key K1 of (nonce, counter).</li>
+  <li>Write P to the cluster's input region in L2 and signal the cluster; its DMA moves P into L1 (TCDM), the layer runs, then the L2 copy is overwritten.</li>
+</ol>
+<p><b>Design choices.</b></p>
+<ul>
+  <li>Two keys, K1 for encryption and K2 for the MAC, provisioned by the security island at secure boot into a CVA6 key register and never written to DRAM. The island stays the root of trust; CVA6 does the bulk decrypt-and-verify work.</li>
+  <li>CTR and CMAC both use only the AES forward (encryption) direction, so Zkne alone is enough; Zknd (decryption) is not needed.</li>
+  <li>Weights, layer descriptors and kernel code are all protected, each block with its own tag.</li>
+  <li>Including the block index and model version in the MAC stops valid blocks from being swapped or replayed.</li>
+  <li>Plaintext stays on-chip: verified tiles live only in the L2 and L1 scratchpads, and each L2 copy is overwritten once the cluster DMA has read it.</li>
+  <li>Tag granularity (per layer vs per tile) trades tag storage against re-verification cost.</li>
+</ul>
+
+<h2>Design space: ISE path vs security engine</h2>
+<p>The ISE path spends CPU time and a little core area to load faster and more flexibly; the security island keeps the key isolated and the CPU free, but is shared and memory-bound.</p>
+<table>
+  <tr><th style="width:16%">Dimension</th><th style="width:29%">ISE path on CVA6 (proposed)</th><th style="width:29%">Security island engine</th><th>Expected winner</th></tr>
+  <tr><td>Added silicon area</td><td>Round datapath (S-boxes, MixColumns) inside the CVA6 ALU</td><td>None if reused: the island is already on chip as root of trust</td><td>Security island</td></tr>
+  <tr><td>Load throughput</td><td>About 2.5 AES instructions per byte for CTR + CMAC, plus load/XOR overhead</td><td>No DMA: Ibex copies data into the engine; about 16 cycles/byte for AES from RAM (<a href="https://arxiv.org/pdf/2402.10395">CF 2024</a>)</td><td>ISE (to be measured)</td></tr>
+  <tr><td>Host CPU availability</td><td>CVA6 busy during decrypt/verify</td><td>CVA6 free; island works in the background</td><td>Security island</td></tr>
+  <tr><td>Scaling with clusters</td><td>One host core feeds every cluster; may become the bottleneck</td><td>One shared engine, also serving boot and attestation</td><td>Depends on workload</td></tr>
+  <tr><td>Flexibility (crypto agility)</td><td>Software: mode, MAC, coverage, tag granularity</td><td>Fixed engines; behaviour set by Ibex firmware</td><td>ISE</td></tr>
+  <tr><td>Side-channel surface</td><td>Key enters the shared CPU pipeline (forwarding, register file)</td><td>Key stays inside the isolated island</td><td>Security island, unless the ISE is masked</td></tr>
+  <tr><td>Best fit</td><td>Large or often reloaded models feeding several clusters</td><td>Small models loaded once at boot; strictest key isolation</td><td>Depends on workload</td></tr>
+</table>
+<p>First-order cost model (to be validated by measurement):</p>
+<pre>T_{ISE} \approx N_{blk} \cdot \left( 2 \cdot R \cdot k \cdot \mathrm{CPI} + c_{ovh} \right)</pre>
+<pre>T_{eng} \approx S_{model} \cdot \left( c_{AES} + c_{MAC} \right) + N_{req} \cdot c_{mbox}</pre>
+<p>Here N_blk = model size / 16 bytes, R = 10 AES-128 rounds, k = instructions per round (2 for RV64 Zkne: aes64esm on each half of the state), the factor 2 covers CTR plus CMAC,
+c_ovh = load/XOR/compare overhead, c_AES and c_MAC = the island's cycles per byte for AES and the MAC (AES about 16 cycles/byte from RAM in CF 2024),
+N_req = mailbox requests and c_mbox = cycles per mailbox round trip.</p>
+<p>The paper's key output is the break-even region: for which model sizes, reload rates and cluster counts the ISE's small added area buys enough load speed to beat the security island.</p>
+
+<h2>Research questions and hypotheses</h2>
+<table>
+  <tr><th style="width:18%">RQ</th><th style="width:40%">Question</th><th>Hypothesis</th></tr>
+  <tr><td>RQ1 — Feasibility</td><td>Can a crypto ISE on the host alone deliver confidential, authenticated, verify-before-use model loading for PULP accelerator clusters?</td><td>Yes; with a t-bit tag, an undetected modification succeeds with probability about 2^-t</td></tr>
+  <tr><td>RQ2 — Cost</td><td>What are the area, Fmax, load-latency and energy costs versus the SoC's security engine, and where is the break-even point?</td><td>The ISE costs a small fraction of core area (a DOM-masked Zkne added 0.39% on CV32E40S) and loads faster than the security island, which has no DMA and is memory-bound; the island wins on key isolation and for boot-time-only loading</td></tr>
+  <tr><td>RQ3 — Coverage</td><td>Does authenticating descriptors and code catch structure-based bit flips that weight-only checks miss?</td><td>Yes; weight-only checking misses flips in descriptors and code, full coverage catches all of them</td></tr>
+  <tr><td>RQ4 — Side channels</td><td>Does the unprotected ISE leak the model key through power, and does first-order masking remove that leakage at acceptable cost?</td><td>Unmasked fails TVLA (max |t| &gt; 4.5); masked passes at first order, with measurable area and cycle overhead</td></tr>
+</table>
+
+<h2>Evaluation methodology</h2>
+<p><b>Platform.</b> The Carfield SoC above (CVA6 with Zkne, the PULP integer and Spatz clusters, the security island). Functional runs of the loader in Spike;
+cycle-accurate runs in RTL simulation with Synopsys VCS; area and Fmax from Cadence Genus synthesis on the TSMC 65 nm LP library, and per-cycle power from Cadence Joules
+using VCS switching activity; power traces on a VCU128 FPGA if we can get one.</p>
+<p><b>Baselines.</b></p>
+<ol>
+  <li>No protection (plaintext model).</li>
+  <li>Software-only AES (no ISE).</li>
+  <li>ISE path, unmasked and masked (proposed).</li>
+  <li>Security engine — the OpenTitan-derived security island (AES + HMAC through its mailbox), plus published GuardNN/SeDA inline-engine figures for context.</li>
+</ol>
+<p><b>Workloads.</b> Small quantized models (MLP and a tiny CNN on MNIST/CIFAR-10), swept from roughly 10 KB to 1 MB of parameters, run on the integer cluster
+(int8 on the cores, FP16 on RedMulE) and on the Spatz cluster, alone and both at once.</p>
+<table>
+  <tr><th style="width:17%">Experiment</th><th style="width:11%">Answers</th><th style="width:38%">Method</th><th>Metrics</th></tr>
+  <tr><td>E1 Cost sweep</td><td>RQ2</td><td>Load each model under every baseline</td><td>Area (µm², kGE) and Fmax from 65 nm synthesis, load cycles, cycles/byte, energy (Joules)</td></tr>
+  <tr><td>E2 Bit-flip campaign</td><td>RQ1, RQ3</td><td>Inject random flips, targeted flips (progressive bit search), and flips in descriptors and code into the DRAM image</td><td>Accuracy with no protection, detection rate with weight-only vs full coverage</td></tr>
+  <tr><td>E3 Leakage assessment</td><td>RQ4</td><td>Fixed-vs-random TVLA and CPA on toggle-count traces from VCS and per-cycle power traces from Joules (65 nm netlist), then on FPGA power traces</td><td>Max |t|, traces to key recovery, masking overhead</td></tr>
+  <tr><td>E4 Granularity</td><td>RQ2</td><td>Vary tag granularity (per layer vs per tile) and the number of clusters fed at once</td><td>Load latency, tag storage, re-verify cost, cluster idle time waiting for the host</td></tr>
+</table>
+
+<h2>Work plan</h2>
+<p>The core contribution (secure loading, bit flips, cost) comes first, so a simulation-only paper exists by week 11; masking and FPGA work build on it.</p>
+<figure>
+  <img src="figures/fig_workplan.png" alt="Work plan: six phases over about 20 weeks; simulation-only paper after phase 3 at week 11">
+  <figcaption>work plan · 6 phases, about 20 weeks</figcaption>
+</figure>
+<p>Each phase ends at a gate; if a stretch phase slips, the paper still stands on phases 0–3.</p>
+
+<h2>Deliverables and success criteria</h2>
+<table>
+  <tr><th style="width:6%">#</th><th style="width:40%">Deliverable</th><th>Done when</th></tr>
+  <tr><td>D1</td><td>Carfield config: CVA6 with Zkne, both PULP clusters and the security island; mailbox driver for the engine baseline</td><td>Builds and passes Carfield's cluster-offload and secure-boot tests in RTL simulation (VCS; host domain first, through Cheshire's VCS flow); Zkne instructions pass their test vectors on CVA6</td></tr>
+  <tr><td>D2</td><td>Secure loader: AES-CTR + CMAC in RISC-V assembly, verify-before-use gate</td><td>Model runs from encrypted memory with the same accuracy as the PyTorch reference</td></tr>
+  <tr><td>D3</td><td>Bit-flip campaign results</td><td>Every injected flip in weights, descriptors and code is detected (up to the 2^-t tag bound); weight-only checking shown to miss descriptor and code flips</td></tr>
+  <tr><td>D4</td><td>Cost comparison</td><td>Area and Fmax (65 nm synthesis) and load latency measured for all four baselines across at least three model sizes, with a break-even plot</td></tr>
+  <tr><td>D5</td><td>Leakage report</td><td>Unmasked ISE shown to leak (max |t| &gt; 4.5); masked ISE passes first-order TVLA in simulation (VCS and Joules) (stretch)</td></tr>
+  <tr><td>D6</td><td>Paper draft</td><td>Simulation-only version ready after phase 3; full version after phase 5</td></tr>
+</table>
+
+<h2>Risks and fallbacks</h2>
+<table>
+  <tr><th style="width:42%">Risk</th><th>Fallback</th></tr>
+  <tr><td>Novelty check finds prior work on ISE-based model protection</td><td>Shift the main claim to the cost trade-off against the security engine and to descriptor/code coverage</td></tr>
+  <tr><td>CVA6's ZKN option does not cover all the RV64 AES instructions we need</td><td>Add the missing Zkne instructions to CVA6's ALU in SystemVerilog, reusing a reference round datapath</td></tr>
+  <tr class="new"><td>QuestaSim, the only simulator Carfield supports upstream, is not available on the lab workstation</td><td>Run CVA6 and the Cheshire host domain through their official VCS flows first; port the full Carfield testbench to VCS using Bender's VCS script; ask for Cadence Xcelium to be installed (licences already exist) or for QuestaSim access</td></tr>
+  <tr><td>Carfield's build and simulation flow takes long to learn</td><td>Start with the stock configuration and the integer cluster only; change only software until the masking phase</td></tr>
+  <tr><td>Other bus masters can read or overwrite plaintext tiles in L2</td><td>Reserve an L2 region with access control, or report it as a measured limit of the ISE path</td></tr>
+  <tr><td>One CVA6 cannot feed two clusters fast enough</td><td>Report host throughput per cluster as a result; Zkne on the cluster cores becomes the next step</td></tr>
+  <tr><td>Security-island firmware and mailbox driver take too long</td><td>Use the published CF 2024 figures, normalized, as the engine baseline</td></tr>
+  <tr><td>RTL simulation of a full model is too slow</td><td>Use Spike for functional runs and a one- or two-layer model in RTL; scale results by block count</td></tr>
+  <tr><td>Masking CVA6's AES datapath is hard</td><td>Prototype the masked round in Verilog first, or reuse OpenTitan's DOM S-box</td></tr>
+  <tr><td>Full Carfield does not fit our FPGA</td><td>Build a reduced config (CVA6 + integer cluster + security island), or report RTL and 65 nm synthesis results only</td></tr>
+  <tr><td>No power-measurement gear for the FPGA</td><td>Use Joules per-cycle power on the 65 nm netlist, an on-chip ring-oscillator or delay-line sensor, or report simulation only</td></tr>
+</table>
+
+<h2>Expected contributions and novelty check</h2>
+<p><b>Contributions.</b></p>
+<ol>
+  <li>An ISE-based scheme for confidential, authenticated, verify-before-use model loading on a RISC-V host that feeds PULP accelerator clusters.</li>
+  <li>The first quantitative comparison, at edge scale, of a host crypto ISE against the SoC's on-chip security engine for model loading, with a break-even analysis.</li>
+  <li>A bit-flip evaluation showing that covering descriptors and code is necessary, not just weights.</li>
+  <li>A leakage assessment of the AES ISE inside a pipeline, before and after first-order masking, in simulation and on FPGA.</li>
+</ol>
+<p><b>How we differ from the closest work.</b></p>
+<table>
+  <tr><th style="width:28%">Work</th><th style="width:34%">What it does</th><th>Difference</th></tr>
+  <tr><td>GuardNN, SeDA, AccShield</td><td>Dedicated engines for accelerator memory</td><td>We use the CPU's ISE, no new engine</td></tr>
+  <tr><td>BitShield, AccHashtag</td><td>Software integrity checks for DNNs</td><td>We add confidentiality and hardware-assisted crypto</td></tr>
+  <tr><td><a href="https://doi.org/10.3390/cryptography10010006">DOM-masked Zkne</a> (2026), <a href="https://arxiv.org/pdf/2602.20285">CryptRISC</a> (2026)</td><td>Masked RISC-V AES instructions</td><td>We apply a masked ISE to an ML use case and measure system cost</td></tr>
+  <tr><td><a href="https://arxiv.org/pdf/2402.10395">OpenTitan as crypto accelerator (CF 2024)</a></td><td>Measures the security island's AES/HMAC throughput on a CVA6 + PULP + OpenTitan SoC</td><td>We use the island for model loading and compare it with a host ISE</td></tr>
+</table>
+<p><b>Novelty check still to do.</b> The "no prior work" claim comes from a limited search. Before writing, search Google Scholar and IACR ePrint for:
+"RISC-V crypto instruction neural network weights", "ISE model encryption accelerator", "Zkne DNN", "CV-X-IF security", and "OpenTitan security island DNN model".</p>
+
+<h2>Open points to discuss with advisor</h2>
+<ul>
+  <li>Platform: confirm Carfield (CVA6 + PULP clusters + security island), and whether to use both clusters or start with the integer cluster only.</li>
+  <li class="new">Simulator: QuestaSim is not available on the lab workstation. Is VCS (licensed) acceptable for the cycle counts, and can the lab install Cadence Xcelium (licences exist) or give QuestaSim access?</li>
+  <li class="new">Area numbers: report 65 nm ASIC synthesis (Genus, TSMC LP) as the primary area/Fmax result, with FPGA numbers as secondary if a board is available?</li>
+  <li>FPGA: do we have a VCU128 or another board Carfield fits on, and is there a ChipWhisperer, an oscilloscope, or should we use an on-chip sensor?</li>
+  <li>Engine baseline: is the security island (AES-128 + HMAC through the mailbox) a fair baseline, or should we also add an inline engine on the L2 path?</li>
+  <li>Plaintext handling: is "decrypt into L2, then cluster DMA into L1" acceptable, or do we need access control on that L2 region against other bus masters?</li>
+  <li>Side-channel scope: include masking in the first paper, or keep it for a follow-up?</li>
+  <li>Freshness: add a version counter against rollback to an older model, or leave it out of scope?</li>
+  <li>Target venue: AsianHOST, VLSID or ISVLSI first, or aim for HOST/DATE?</li>
+</ul>
+
+<h2>Glossary</h2>
+<table>
+  <tr><th style="width:32%">Term</th><th>Meaning</th></tr>
+  <tr><td>ISE (instruction-set extension)</td><td>New instructions added to a CPU, here the AES round instructions</td></tr>
+  <tr><td>Zkn / Zkne</td><td>RISC-V's standard scalar crypto extensions; Zkne covers AES encryption (aes64es, aes64esm on RV64)</td></tr>
+  <tr><td>Carfield</td><td>PULP's open-source mixed-criticality SoC: CVA6 host, accelerator clusters, security and safety islands</td></tr>
+  <tr><td>CVA6</td><td>A 64-bit, 6-stage, in-order, Linux-capable RISC-V core from the OpenHW Group; the host CPU here</td></tr>
+  <tr><td>PULP cluster</td><td>A group of small 32-bit RISC-V cores sharing one L1 scratchpad, fed by its own DMA</td></tr>
+  <tr><td>TCDM</td><td>Tightly coupled data memory: the cluster's shared, multi-banked L1 scratchpad</td></tr>
+  <tr><td>RedMulE</td><td>A matrix-multiplication engine attached to the integer cluster's L1</td></tr>
+  <tr><td>Spatz</td><td>A compact RISC-V vector (RVV) cluster for floating-point work</td></tr>
+  <tr><td>Security island</td><td>Carfield's OpenTitan-derived root of trust: Ibex core, AES and SHA-2/HMAC engines, key storage, secure boot</td></tr>
+  <tr><td>Mailbox</td><td>Shared registers plus interrupts through which the host asks the security island for a service</td></tr>
+  <tr><td>L2 scratchpad</td><td>On-chip SRAM shared by host and clusters; software-managed, so data is never evicted to DRAM</td></tr>
+  <tr><td>Dedicated inline engine</td><td>A separate crypto block on the memory path that encrypts/decrypts data automatically</td></tr>
+  <tr><td>Confidentiality</td><td>The attacker cannot read the data</td></tr>
+  <tr><td>Integrity / authenticity</td><td>Any change to the data is detected, and only the key holder can make valid data</td></tr>
+  <tr><td>AES-CTR</td><td>Counter mode: AES encrypts a counter to make a keystream, XORed with the data</td></tr>
+  <tr><td>MAC / CMAC / tag</td><td>A keyed checksum; CMAC builds it from AES; the short output is the tag</td></tr>
+  <tr><td>Encrypt-then-MAC</td><td>Encrypt first, then compute the MAC over the ciphertext; the recommended order</td></tr>
+  <tr><td>Verify-before-use / TOCTOU</td><td>Only use data after it passes the check, so it cannot change between check and use</td></tr>
+  <tr><td>Layer descriptor</td><td>The settings of a layer: shapes, strides, quantization scales, activation type</td></tr>
+  <tr><td>Bit-flip attack (BFA)</td><td>Flipping chosen bits in a model to break it or plant a backdoor</td></tr>
+  <tr><td>RowHammer</td><td>Repeatedly accessing DRAM rows to flip bits in nearby rows</td></tr>
+  <tr><td>Side-channel attack (SCA)</td><td>Learning secrets from power, EM or timing instead of the data itself</td></tr>
+  <tr><td>CPA</td><td>Correlation power analysis: matching power traces to guessed key bytes</td></tr>
+  <tr><td>TVLA</td><td>Test vector leakage assessment: a t-test; |t| &gt; 4.5 means leakage</td></tr>
+  <tr><td>Masking (DOM)</td><td>Splitting secrets into random shares so power does not depend on them; DOM is a glitch-resistant form</td></tr>
+  <tr><td>Spike</td><td>The RISC-V instruction-level simulator</td></tr>
+  <tr><td>TCB</td><td>Trusted computing base: the parts assumed secure</td></tr>
+  <tr class="new"><td>VCS</td><td>Synopsys's SystemVerilog simulator; used here instead of QuestaSim</td></tr>
+  <tr class="new"><td>Bender</td><td>The PULP platform's tool that fetches the right versions of all hardware IPs and writes simulator/synthesis scripts</td></tr>
+  <tr class="new"><td>Genus / Design Compiler</td><td>Logic synthesis tools (Cadence / Synopsys) that turn RTL into standard cells and report area and timing</td></tr>
+  <tr class="new"><td>Joules</td><td>Cadence's RTL/gate-level power tool; with simulation activity it gives power per clock cycle</td></tr>
+  <tr class="new"><td>TSMC 65 nm LP</td><td>The lab's standard-cell library (tcbn65lp) used for synthesis, timing and power numbers</td></tr>
+</table>
+
+<h2>Key references</h2>
+<ul>
+  <li><a href="https://arxiv.org/pdf/2008.11632">GuardNN: Secure Accelerator Architecture for Privacy-Preserving Deep Learning</a> — DAC 2022</li>
+  <li><a href="https://arxiv.org/html/2508.18924">SeDA: Secure and Efficient DNN Accelerators with Hardware/Software Synergy</a> — DAC 2025</li>
+  <li><a href="https://ipads.se.sjtu.edu.cn/_media/publications/feng-isca24.pdf">sNPU: Trusted Execution Environments on Integrated NPUs</a> — ISCA 2024</li>
+  <li><a href="https://cse.sustech.edu.cn/faculty/~zhangfw/paper/sok-xputee-ndss26.pdf">SoK: Analysis of Accelerator TEE Designs</a> — NDSS 2026</li>
+  <li><a href="https://www.ndss-symposium.org/ndss-paper/compiled-models-built-in-exploits-uncovering-pervasive-bit-flip-attack-surfaces-in-dnn-executables/">Compiled Models, Built-In Exploits</a> — NDSS 2025</li>
+  <li><a href="https://www.ndss-symposium.org/wp-content/uploads/2025-1463-paper.pdf">BitShield: Defending Against Bit-Flip Attacks on DNN Executables</a> — NDSS 2025</li>
+  <li><a href="https://dl.acm.org/doi/10.1145/3555808">AccHashtag</a> — ACM JETC 2023</li>
+  <li><a href="https://openaccess.thecvf.com/content/ICCV2025/papers/Li_Backdoor_Attacks_on_Neural_Networks_via_One-Bit_Flip_ICCV_2025_paper.pdf">Backdoor Attacks on Neural Networks via One-Bit Flip</a> — ICCV 2025</li>
+  <li><a href="https://www.usenix.org/conference/usenixsecurity25/presentation/horvath">BarraCUDA: Edge GPUs do Leak DNN Weights</a> — USENIX Security 2025</li>
+  <li><a href="https://eprint.iacr.org/2020/930.pdf">The design of scalar AES ISEs for RISC-V</a> — TCHES 2021</li>
+  <li><a href="https://docs.riscv.org/reference/isa/unpriv/scalar-crypto.html">RISC-V Scalar Cryptography Extension spec</a> — v1.0.1</li>
+  <li><a href="https://doi.org/10.3390/cryptography10010006">Secure Implementation of RISC-V's Scalar Cryptography Extension Set</a> — MDPI Cryptography 2026</li>
+  <li><a href="https://arxiv.org/pdf/2602.20285">CryptRISC</a> — arXiv 2026 preprint</li>
+  <li><a href="https://arxiv.org/abs/2512.18132">PermuteV</a> — arXiv 2025</li>
+  <li><a href="https://github.com/pulp-platform/carfield">Carfield SoC repository</a> — PULP platform</li>
+  <li><a href="https://pulp-platform.org/docs/dac2023/Carfield_SSH_SoC_DAC23_v2_pdf.pdf">Carfield: SoC overview slides</a> — DAC 2023</li>
+  <li><a href="https://arxiv.org/pdf/2402.10395">Assessing the Performance of OpenTitan as Cryptographic Accelerator in Secure Open-Hardware SoCs</a> — CF 2024</li>
+  <li><a href="https://docs.openhwfoundation.org/projects/cva6-user-manual/01_cva6_user/Parameters_Configuration.html">CVA6 user manual: parameters and configuration</a></li>
+  <li><a href="https://arxiv.org/pdf/2301.03904">RedMulE: A Mixed-Precision Matrix-Matrix Operation Engine</a> — arXiv 2023</li>
+  <li><a href="https://opentitan.org/book/hw/ip/aes/">OpenTitan AES HWIP specification</a></li>
+</ul>
+
+</body>
+</html>
