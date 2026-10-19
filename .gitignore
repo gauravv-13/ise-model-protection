@@ -39,3 +39,6 @@ datasets/
 
 # Bulk data kept outside the repo
 bulk/
+
+# Command output logs (local only)
+logs/
