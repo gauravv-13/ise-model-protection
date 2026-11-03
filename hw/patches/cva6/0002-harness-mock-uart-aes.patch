@@ -1,0 +1,52 @@
+# Test harness switches (both off by default):
+#   MOCK_UART   use the mock UART (instant $write) instead of the 115200-baud UART
+#   AES_PERIPH  put OpenTitan AES (hw/rtl/aes_periph) in the GPIO slot, 0x4000_0000
+
+diff --git a/corev_apu/tb/ariane_testharness.sv b/corev_apu/tb/ariane_testharness.sv
+index 6e1d7a2..deb0328 100644
+--- a/corev_apu/tb/ariane_testharness.sv
++++ b/corev_apu/tb/ariane_testharness.sv
+@@ -375,6 +375,19 @@ module ariane_testharness #(
+   // GPIO
+   // ------------------------------
+ 
++`ifdef AES_PERIPH
++  // OpenTitan AES in the GPIO slot (0x4000_0000), see hw/rtl/aes_periph/
++  aes_periph #(
++    .AxiAddrWidth ( AXI_ADDRESS_WIDTH            ),
++    .AxiDataWidth ( AXI_DATA_WIDTH               ),
++    .AxiIdWidth   ( ariane_axi_soc::IdWidthSlave ),
++    .AxiUserWidth ( AXI_USER_WIDTH               )
++  ) i_aes_periph (
++    .clk_i  ( clk_i                    ),
++    .rst_ni ( ndmreset_n               ),
++    .axi    ( master[ariane_soc::GPIO] )
++  );
++`else
+   // GPIO not implemented, adding an error slave here
+ 
+   ariane_axi_soc::req_slv_t  gpio_req;
+@@ -392,6 +405,7 @@ module ariane_testharness #(
+     .slv_req_i  ( gpio_req ),
+     .slv_resp_o ( gpio_resp )
+   );
++`endif
+ 
+ 
+   // ------------------------------
+@@ -583,10 +597,12 @@ module ariane_testharness #(
+     .AxiDataWidth ( AXI_DATA_WIDTH               ),
+     .AxiIdWidth   ( ariane_axi_soc::IdWidthSlave ),
+     .AxiUserWidth ( AXI_USER_WIDTH               ),
+-`ifndef VERILATOR
+-    .InclUART     ( 1'b1                     ),
+-`else
++`ifdef VERILATOR
+     .InclUART     ( 1'b0                     ),
++`elsif MOCK_UART
++    .InclUART     ( 1'b0                     ),  // mock UART: prints with $write, no baud delay
++`else
++    .InclUART     ( 1'b1                     ),
+ `endif
+     .InclSPI      ( 1'b0                     ),
+     .InclEthernet ( 1'b0                     )

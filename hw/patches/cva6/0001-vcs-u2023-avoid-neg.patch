@@ -1,0 +1,141 @@
+# VCS U-2023.03 cannot evaluate avoid_neg(CVA6Cfg.X-1) in port/array ranges
+# (XMRENRM). Same value written as a plain conditional.
+
+diff --git a/core/acc_dispatcher.sv b/core/acc_dispatcher.sv
+index 5309b2f..c648ced 100644
+--- a/core/acc_dispatcher.sv
++++ b/core/acc_dispatcher.sv
+@@ -41,8 +41,8 @@ module acc_dispatcher
+     // Interface with the CSRs
+     input priv_lvl_t ld_st_priv_lvl_i,
+     input logic sum_i,
+-    input pmpcfg_t [avoid_neg(CVA6Cfg.NrPMPEntries-1):0] pmpcfg_i,
+-    input logic [avoid_neg(CVA6Cfg.NrPMPEntries-1):0][CVA6Cfg.PLEN-3:0] pmpaddr_i,
++    input pmpcfg_t [(CVA6Cfg.NrPMPEntries > 0 ? CVA6Cfg.NrPMPEntries-1 : 0):0] pmpcfg_i,
++    input logic [(CVA6Cfg.NrPMPEntries > 0 ? CVA6Cfg.NrPMPEntries-1 : 0):0][CVA6Cfg.PLEN-3:0] pmpaddr_i,
+     input logic [2:0] fcsr_frm_i,
+     output logic dirty_v_state_o,
+     input logic acc_mmu_en_i,
+diff --git a/core/csr_regfile.sv b/core/csr_regfile.sv
+index f6ed1ec..654c237 100644
+--- a/core/csr_regfile.sv
++++ b/core/csr_regfile.sv
+@@ -184,9 +184,9 @@ module csr_regfile
+     // TO_BE_COMPLETED - PERF_COUNTERS
+     output logic perf_we_o,
+     // PMP configuration containing pmpcfg for max 64 PMPs - ACC_DISPATCHER
+-    output riscv::pmpcfg_t [avoid_neg(CVA6Cfg.NrPMPEntries-1):0] pmpcfg_o,
++    output riscv::pmpcfg_t [(CVA6Cfg.NrPMPEntries > 0 ? CVA6Cfg.NrPMPEntries-1 : 0):0] pmpcfg_o,
+     // PMP addresses - ACC_DISPATCHER
+-    output logic [avoid_neg(CVA6Cfg.NrPMPEntries-1):0][CVA6Cfg.PLEN-3:0] pmpaddr_o,
++    output logic [(CVA6Cfg.NrPMPEntries > 0 ? CVA6Cfg.NrPMPEntries-1 : 0):0][CVA6Cfg.PLEN-3:0] pmpaddr_o,
+     // TO_BE_COMPLETED - PERF_COUNTERS
+     output logic [31:0] mcountinhibit_o,
+     // RVFI
+diff --git a/core/cva6.sv b/core/cva6.sv
+index 5b7c505..b537555 100644
+--- a/core/cva6.sv
++++ b/core/cva6.sv
+@@ -605,8 +605,8 @@ module cva6
+   logic acc_cons_en_csr;
+   logic debug_mode;
+   logic single_step_csr_commit;
+-  riscv::pmpcfg_t [avoid_neg(CVA6Cfg.NrPMPEntries-1):0] pmpcfg;
+-  logic [avoid_neg(CVA6Cfg.NrPMPEntries-1):0][CVA6Cfg.PLEN-3:0] pmpaddr;
++  riscv::pmpcfg_t [(CVA6Cfg.NrPMPEntries > 0 ? CVA6Cfg.NrPMPEntries-1 : 0):0] pmpcfg;
++  logic [(CVA6Cfg.NrPMPEntries > 0 ? CVA6Cfg.NrPMPEntries-1 : 0):0][CVA6Cfg.PLEN-3:0] pmpaddr;
+   logic [31:0] mcountinhibit_csr_perf;
+   //jvt
+   jvt_t jvt;
+diff --git a/core/cva6_mmu/cva6_mmu.sv b/core/cva6_mmu/cva6_mmu.sv
+index ef7099a..5dcfc78 100644
+--- a/core/cva6_mmu/cva6_mmu.sv
++++ b/core/cva6_mmu/cva6_mmu.sv
+@@ -109,8 +109,8 @@ module cva6_mmu
+ 
+     // PMP
+ 
+-    input riscv::pmpcfg_t [avoid_neg(CVA6Cfg.NrPMPEntries-1):0]                   pmpcfg_i,
+-    input logic           [avoid_neg(CVA6Cfg.NrPMPEntries-1):0][CVA6Cfg.PLEN-3:0] pmpaddr_i
++    input riscv::pmpcfg_t [(CVA6Cfg.NrPMPEntries > 0 ? CVA6Cfg.NrPMPEntries-1 : 0):0]                   pmpcfg_i,
++    input logic           [(CVA6Cfg.NrPMPEntries > 0 ? CVA6Cfg.NrPMPEntries-1 : 0):0][CVA6Cfg.PLEN-3:0] pmpaddr_i
+ );
+ 
+   // memory management, pte for cva6
+diff --git a/core/cva6_mmu/cva6_ptw.sv b/core/cva6_mmu/cva6_ptw.sv
+index 52a4ba5..598b10e 100644
+--- a/core/cva6_mmu/cva6_ptw.sv
++++ b/core/cva6_mmu/cva6_ptw.sv
+@@ -84,8 +84,8 @@ module cva6_ptw
+     output logic shared_tlb_miss_o,
+ 
+     // PMP
+-    input riscv::pmpcfg_t [avoid_neg(CVA6Cfg.NrPMPEntries-1):0] pmpcfg_i,
+-    input logic [avoid_neg(CVA6Cfg.NrPMPEntries-1):0][CVA6Cfg.PLEN-3:0] pmpaddr_i,
++    input riscv::pmpcfg_t [(CVA6Cfg.NrPMPEntries > 0 ? CVA6Cfg.NrPMPEntries-1 : 0):0] pmpcfg_i,
++    input logic [(CVA6Cfg.NrPMPEntries > 0 ? CVA6Cfg.NrPMPEntries-1 : 0):0][CVA6Cfg.PLEN-3:0] pmpaddr_i,
+     output logic [CVA6Cfg.PLEN-1:0] bad_paddr_o,
+     output logic [CVA6Cfg.GPLEN-1:0] bad_gpaddr_o
+ );
+diff --git a/core/ex_stage.sv b/core/ex_stage.sv
+index fe9e9b0..2f7c81c 100644
+--- a/core/ex_stage.sv
++++ b/core/ex_stage.sv
+@@ -240,9 +240,9 @@ module ex_stage
+     // To count the data TLB misses - PERF_COUNTERS
+     output logic dtlb_miss_o,
+     // Report the PMP configuration - CSR_REGFILE
+-    input riscv::pmpcfg_t [avoid_neg(CVA6Cfg.NrPMPEntries-1):0] pmpcfg_i,
++    input riscv::pmpcfg_t [(CVA6Cfg.NrPMPEntries > 0 ? CVA6Cfg.NrPMPEntries-1 : 0):0] pmpcfg_i,
+     // Report the PMP addresses - CSR_REGFILE
+-    input logic [avoid_neg(CVA6Cfg.NrPMPEntries-1):0][CVA6Cfg.PLEN-3:0] pmpaddr_i,
++    input logic [(CVA6Cfg.NrPMPEntries > 0 ? CVA6Cfg.NrPMPEntries-1 : 0):0][CVA6Cfg.PLEN-3:0] pmpaddr_i,
+     // Information dedicated to RVFI - RVFI
+     output lsu_ctrl_t rvfi_lsu_ctrl_o,
+     // Information dedicated to RVFI - RVFI
+diff --git a/core/load_store_unit.sv b/core/load_store_unit.sv
+index 1256206..0959f9b 100644
+--- a/core/load_store_unit.sv
++++ b/core/load_store_unit.sv
+@@ -163,9 +163,9 @@ module load_store_unit
+     input  amo_resp_t           amo_resp_i,
+ 
+     // PMP configuration - CSR_REGFILE
+-    input riscv::pmpcfg_t [avoid_neg(CVA6Cfg.NrPMPEntries-1):0]                   pmpcfg_i,
++    input riscv::pmpcfg_t [(CVA6Cfg.NrPMPEntries > 0 ? CVA6Cfg.NrPMPEntries-1 : 0):0]                   pmpcfg_i,
+     // PMP address - CSR_REGFILE
+-    input logic           [avoid_neg(CVA6Cfg.NrPMPEntries-1):0][CVA6Cfg.PLEN-3:0] pmpaddr_i,
++    input logic           [(CVA6Cfg.NrPMPEntries > 0 ? CVA6Cfg.NrPMPEntries-1 : 0):0][CVA6Cfg.PLEN-3:0] pmpaddr_i,
+ 
+     // RVFI information - RVFI
+     output lsu_ctrl_t                    rvfi_lsu_ctrl_o,
+diff --git a/core/pmp/src/pmp.sv b/core/pmp/src/pmp.sv
+index b6d0dbf..2c8eac8 100644
+--- a/core/pmp/src/pmp.sv
++++ b/core/pmp/src/pmp.sv
+@@ -22,8 +22,8 @@ module pmp
+     input riscv::pmp_access_t access_type_i,
+     input riscv::priv_lvl_t priv_lvl_i,
+     // Configuration
+-    input logic [avoid_neg(CVA6Cfg.NrPMPEntries-1):0][CVA6Cfg.PLEN-3:0] conf_addr_i,
+-    input riscv::pmpcfg_t [avoid_neg(CVA6Cfg.NrPMPEntries-1):0] conf_i,
++    input logic [(CVA6Cfg.NrPMPEntries > 0 ? CVA6Cfg.NrPMPEntries-1 : 0):0][CVA6Cfg.PLEN-3:0] conf_addr_i,
++    input riscv::pmpcfg_t [(CVA6Cfg.NrPMPEntries > 0 ? CVA6Cfg.NrPMPEntries-1 : 0):0] conf_i,
+     // Output
+     output logic allow_o
+ );
+diff --git a/core/pmp/src/pmp_data_if.sv b/core/pmp/src/pmp_data_if.sv
+index a944a2b..0e659e1 100644
+--- a/core/pmp/src/pmp_data_if.sv
++++ b/core/pmp/src/pmp_data_if.sv
+@@ -37,8 +37,8 @@ module pmp_data_if
+     input riscv::priv_lvl_t ld_st_priv_lvl_i,
+     input logic ld_st_v_i,
+     // PMP
+-    input riscv::pmpcfg_t [avoid_neg(CVA6Cfg.NrPMPEntries-1):0] pmpcfg_i,
+-    input logic [avoid_neg(CVA6Cfg.NrPMPEntries-1):0][CVA6Cfg.PLEN-3:0] pmpaddr_i
++    input riscv::pmpcfg_t [(CVA6Cfg.NrPMPEntries > 0 ? CVA6Cfg.NrPMPEntries-1 : 0):0] pmpcfg_i,
++    input logic [(CVA6Cfg.NrPMPEntries > 0 ? CVA6Cfg.NrPMPEntries-1 : 0):0][CVA6Cfg.PLEN-3:0] pmpaddr_i
+ );
+   // virtual address causing the exception
+   logic [CVA6Cfg.XLEN-1:0] fetch_vaddr_xlen, lsu_vaddr_xlen;
