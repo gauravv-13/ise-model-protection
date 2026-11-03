@@ -1,0 +1,18 @@
+KAT sw ct=69c4e0d86a7b0430d8cdb78070b4c55a PASS
+KAT zkne ct=69c4e0d86a7b0430d8cdb78070b4c55a PASS
+KAT ot ct=69c4e0d86a7b0430d8cdb78070b4c55a PASS
+RESULT sw expand bytes=0 cycles=2508 instret=2016
+RESULT sw encrypt bytes=16 cycles=1146 instret=1127
+RESULT sw encrypt bytes=1024 cycles=72465 instret=70238
+RESULT sw encrypt bytes=4096 cycles=289144 instret=280862
+RESULT zkne expand bytes=0 cycles=194 instret=152
+RESULT zkne encrypt bytes=16 cycles=141 instret=127
+RESULT zkne encrypt bytes=1024 cycles=6764 instret=6238
+RESULT zkne encrypt bytes=4096 cycles=27436 instret=24862
+BUF zkne PASS
+RESULT ot expand bytes=0 cycles=312 instret=119
+RESULT ot encrypt bytes=16 cycles=206 instret=80
+RESULT ot encrypt bytes=1024 cycles=6078 instret=1589
+RESULT ot encrypt bytes=4096 cycles=24223 instret=6200
+BUF ot PASS
+ALL PASS
