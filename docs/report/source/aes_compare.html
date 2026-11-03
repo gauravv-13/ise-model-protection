@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AES on CVA6: ISE vs Accelerator</title>
+<style>
+  @page {
+    size: A4;
+    margin: 22mm 22mm 20mm 22mm;
+    @top-left { content: "AES-128 on CVA6: Zkne instructions vs OpenTitan accelerator"; font: 7pt "Liberation Sans", sans-serif; color: #666; }
+    @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 7pt "Liberation Sans", sans-serif; color: #666; }
+  }
+  body { font-family: "Liberation Sans", "DejaVu Sans", sans-serif; font-size: 10.5pt; line-height: 1.5; color: #1f1f1f; }
+  h1, h2, h3 { font-family: "Liberation Serif", "DejaVu Serif", serif; font-weight: normal; color: #111; }
+  h1 { font-size: 23pt; line-height: 1.15; margin: 0 0 8pt 0; }
+  h2 { font-size: 15pt; margin: 18pt 0 6pt 0; page-break-after: avoid; }
+  h3 { font-size: 12pt; margin: 12pt 0 4pt 0; page-break-after: avoid; }
+  p { margin: 0 0 8pt 0; }
+  ul, ol { margin: 0 0 8pt 0; padding-left: 18pt; }
+  li { margin-bottom: 2pt; }
+  .sub { color: #555; margin: 0 0 14pt 0; }
+  .note { background: #eef4fb; border-left: 3pt solid #2a6bc4; padding: 6pt 9pt; font-size: 9.5pt; margin: 0 0 12pt 0; }
+  .key { background: #f3f8ee; border-left: 3pt solid #4a8a2a; padding: 6pt 9pt; margin: 0 0 12pt 0; }
+  table { width: 100%; border-collapse: collapse; margin: 4pt 0 10pt 0; font-size: 9.5pt; }
+  tr { page-break-inside: avoid; }
+  .keep { page-break-inside: avoid; }
+  th, td { border: 0.6pt solid #d8d8d4; padding: 4pt 6pt; vertical-align: top; text-align: left; }
+  td.n, th.n { text-align: right; }
+  th { background: #f4f4f1; font-weight: normal; color: #444; }
+  figure { margin: 6pt 0 10pt 0; page-break-inside: avoid; }
+  figure img, figure svg { width: 100%; }
+  figure img.chart { width: 85%; display: block; margin: 0 auto; }
+  td:first-child { width: 38%; }
+  figcaption { font-size: 9pt; color: #555; margin-top: 4pt; }
+  code { font-family: "DejaVu Sans Mono", monospace; font-size: 9pt; white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<h1>AES-128 on a RISC-V CPU: Zkne instructions vs a security accelerator</h1>
+<p class="sub">Honours project, first results &middot; CVA6 (RTL, VCS) and TSMC 65 nm LP synthesis (Genus) &middot; November 2026</p>
+
+<div class="key">
+<b>Result in one line.</b> On the same CVA6 core, the RISC-V scalar crypto instructions (Zkne)
+encrypt about as fast as OpenTitan's AES accelerator (107 vs 95 cycles per 16-byte block, both
+about 11&times; faster than software), with about 20&times; less hardware (4.9 vs 98 kGE). The
+accelerator's advantages are elsewhere: it is masked against power analysis and leaves the CPU free.
+</div>
+
+<h2>1. Question</h2>
+<p>A RISC-V SoC can speed up AES in two ways:</p>
+<ul>
+  <li><b>Inside the CPU (ISE):</b> the Zkne extension adds instructions such as <code>aes64esm</code>, each
+  doing one AES round step on half the state in one cycle. The CPU runs the cipher itself.</li>
+  <li><b>Next to the CPU (accelerator):</b> a separate AES block on the bus. The CPU writes the key and
+  data into its registers, waits, and reads the result. Carfield's OpenTitan security island has one.</li>
+</ul>
+<p>How do the two compare in <b>speed</b> and <b>area</b>, measured on the same processor and the same
+technology? Plain software AES is included as the baseline.</p>
+
+<h2>2. Setup</h2>
+<figure>
+<svg viewBox="0 0 640 170" xmlns="http://www.w3.org/2000/svg" font-family="Liberation Sans, DejaVu Sans, sans-serif" font-size="11">
+  <rect x="10" y="20" width="250" height="130" rx="6" fill="#f4f4f1" stroke="#999"/>
+  <text x="20" y="38" font-weight="bold">CVA6 core (upstream, ZKN = 1)</text>
+  <rect x="25" y="50" width="100" height="40" rx="4" fill="#fff" stroke="#999"/>
+  <text x="38" y="74">regs, pipeline</text>
+  <rect x="140" y="50" width="105" height="40" rx="4" fill="#e3f0d8" stroke="#4a8a2a"/>
+  <text x="150" y="68">ALU + Zkn unit</text>
+  <text x="150" y="82" font-size="9.5" fill="#555">(1) sw  (2) Zkne</text>
+  <rect x="25" y="102" width="220" height="34" rx="4" fill="#fff" stroke="#999"/>
+  <text x="70" y="123">L1 caches, load/store unit</text>
+  <line x1="260" y1="119" x2="330" y2="119" stroke="#555" stroke-width="2"/>
+  <text x="270" y="112">AXI</text>
+  <rect x="330" y="95" width="90" height="48" rx="4" fill="#fff" stroke="#999"/>
+  <text x="340" y="114">AXI&#8594;APB</text>
+  <text x="340" y="130">APB&#8594;TL-UL</text>
+  <line x1="420" y1="119" x2="470" y2="119" stroke="#555" stroke-width="2"/>
+  <rect x="470" y="70" width="160" height="80" rx="6" fill="#e6eef9" stroke="#2a6bc4"/>
+  <text x="480" y="90" font-weight="bold">OpenTitan AES</text>
+  <text x="480" y="106" font-size="9.5">masked (DOM S-box), as in</text>
+  <text x="480" y="119" font-size="9.5">Carfield's security island</text>
+  <text x="480" y="138" font-size="9.5" fill="#555">(3) accelerator, 0x4000_0000</text>
+  <rect x="270" y="20" width="160" height="40" rx="4" fill="#fff" stroke="#999"/>
+  <text x="280" y="38">DRAM model, mock UART</text>
+  <text x="280" y="52" font-size="9.5" fill="#555">CVA6 test harness</text>
+</svg>
+<figcaption>Figure 1. All three methods run on one CVA6 in RTL simulation. The OpenTitan AES block is
+attached to CVA6's bus, so a real CPU drives it with real loads and stores.</figcaption>
+</figure>
+<ul>
+  <li><b>CPU:</b> upstream CVA6 (RV64GC, Zkn enabled). Carfield's own CVA6 (2023) predates Zkn, so CVA6 runs
+  standalone in its test harness, simulated in Synopsys VCS.</li>
+  <li><b>Accelerator:</b> OpenTitan's AES IP from Carfield's dependencies, with its default settings
+  (first-order masking, DOM S-box), placed on CVA6's peripheral bus through the harness's own AXI-to-APB
+  bridge and a small APB-to-TL-UL adapter.</li>
+  <li><b>Software:</b> one bare-metal C program with three implementations: T-table AES (what libraries do
+  without AES instructions), Zkne (<code>aes64ks1i/ks2/esm/es</code>), and a driver for the accelerator that
+  overlaps blocks as OpenTitan's programming guide recommends.</li>
+  <li><b>Correctness:</b> all three produce the FIPS-197 C.1 ciphertext <code>69c4e0d8&hellip;c55a</code> and
+  identical output for a 4 KB buffer, in RTL simulation. Spike gives the same instruction counts as CVA6.</li>
+  <li><b>Area:</b> Cadence Genus, TSMC 65 nm LP standard cells, typical corner (1.2 V, 25 &deg;C),
+  2 ns clock target. 1 kGE = 1000 NAND2 cells = 1440 &micro;m&sup2;.</li>
+</ul>
+
+<h2>3. Speed</h2>
+<table>
+  <tr><th>Method</th><th class="n">Key setup</th><th class="n">1 block (16 B)</th><th class="n">1 KB</th><th class="n">4 KB</th><th class="n">Cycles / block</th><th class="n">vs software</th></tr>
+  <tr><td>Software (T-table)</td><td class="n">2,508</td><td class="n">1,146</td><td class="n">72,465</td><td class="n">289,144</td><td class="n">1,129</td><td class="n">1&times;</td></tr>
+  <tr><td>Zkne instructions</td><td class="n">194</td><td class="n">141</td><td class="n">6,764</td><td class="n">27,436</td><td class="n">107</td><td class="n">10.5&times;</td></tr>
+  <tr><td>OpenTitan accelerator</td><td class="n">312</td><td class="n">206</td><td class="n">6,078</td><td class="n">24,223</td><td class="n">95</td><td class="n">11.9&times;</td></tr>
+</table>
+<p class="sub" style="font-size:9pt">CVA6 cycles (<code>mcycle</code>), RTL simulation. Cycles / block from the 4 KB run.</p>
+<figure>
+<img class="chart" src="../../../experiments/e1_cost/results/cycles_per_block.png" alt="Cycles per block for 16 B, 1 KB and 4 KB">
+<figcaption>Figure 2. Cycles per 16-byte block (log scale). The accelerator is slowest for a single block
+(bus round trips and status polling) and slightly fastest for large buffers, where it overlaps blocks.</figcaption>
+</figure>
+<ul>
+  <li><b>Zkne and the accelerator are close.</b> The accelerator computes the rounds in dedicated logic, but
+  each block also costs 8 bus accesses plus status polling. Those round trips use up most of its advantage.</li>
+  <li><b>For one block, Zkne wins</b> (141 vs 206 cycles): no bus trips and no status polling.</li>
+  <li><b>The CPU is busy with Zkne but mostly waiting with the accelerator</b> (about 97 vs 24 instructions per
+  block). With the accelerator, CVA6 could do other work in parallel, though this test does not use that.</li>
+</ul>
+
+<h2>4. Area</h2>
+<table>
+  <tr><th>Block</th><th class="n">Area (&micro;m&sup2;)</th><th class="n">kGE</th><th class="n">Logic only (kGE)</th><th>Meets 2 ns?</th></tr>
+  <tr><td>Zkne unit (only the 4 encryption instructions)</td><td class="n">8,785</td><td class="n">6.1</td><td class="n">4.9</td><td>yes</td></tr>
+  <tr><td>Full Zkn unit as in CVA6 (adds decryption and SHA-2)</td><td class="n">16,751</td><td class="n">11.6</td><td class="n">10.4</td><td>yes</td></tr>
+  <tr><td>OpenTitan AES, masked (Carfield default)</td><td class="n">141,457</td><td class="n">98.2</td><td class="n">59.6</td><td>yes</td></tr>
+  <tr><td>OpenTitan AES, unmasked</td><td class="n">73,111</td><td class="n">50.8</td><td class="n">38.1</td><td>no, misses by 0.71 ns (about 370 MHz)</td></tr>
+</table>
+<p class="sub" style="font-size:9pt">"Logic only" leaves out flip-flops. For Zkne/Zkn these are only the wrapper registers that stand in
+for CVA6's existing pipeline registers, so 4.9 kGE is what Zkne adds to the CPU. For OpenTitan the flip-flops
+(key, state, data and control registers) are part of its real cost, so the full 98.2 kGE counts.</p>
+<figure>
+<img class="chart" src="../../../experiments/e1_cost/results/area.png" alt="Area of each block in kGE">
+<figcaption>Figure 3. Area at 65 nm, 2 ns target (the unmasked OpenTitan AES misses this target by 0.71 ns).</figcaption>
+</figure>
+<ul>
+  <li><b>Zkne is about 20&times; smaller</b> than the accelerator (4.9 vs 98.2 kGE), because it reuses the
+  CPU's registers, control and memory path, and only adds the S-box and MixColumns logic.</li>
+  <li><b>About half of the accelerator is masking.</b> Without masking, OpenTitan AES is 50.8 kGE. So the
+  93 kGE gap to Zkne splits roughly into ~47 kGE for side-channel protection and ~46 kGE for being a
+  separate block (its own key, state, data and control registers and bus interface). Even unmasked, it is
+  about 10&times; the Zkne unit.</li>
+  <li><b>Unmasked has a longer logic path:</b> it computes a whole round in one cycle, so it misses the 2 ns
+  target (masked AES spreads each round over several cycles). Its cycle count was not simulated here.</li>
+  <li><b>Timing:</b> the Zkne unit meets 2 ns (500 MHz). At a 1 ns target it misses by 0.2 ns, so on its own it
+  reaches about 830 MHz. It sits in CVA6's single-cycle ALU path, so it could set the CPU's clock limit; this
+  needs a full-core synthesis to confirm.</li>
+</ul>
+
+<div class="keep">
+<h2>5. What this means</h2>
+<table>
+  <tr><th></th><th>Zkne (inside the CPU)</th><th>OpenTitan accelerator (next to it)</th></tr>
+  <tr><td>Speed, large buffers</td><td>107 cycles/block</td><td>95 cycles/block</td></tr>
+  <tr><td>Speed, one block</td><td>141 cycles</td><td>206 cycles</td></tr>
+  <tr><td>Extra area</td><td>4.9 kGE</td><td>98.2 kGE masked, 50.8 kGE unmasked</td></tr>
+  <tr><td>CPU during encryption</td><td>busy</td><td>mostly free</td></tr>
+  <tr><td>Power side-channel protection</td><td>none</td><td>first-order masking</td></tr>
+  <tr><td>Key handling</td><td>key in CPU registers and memory</td><td>key stays inside the block</td></tr>
+</table>
+<p>For raw speed per area, Zkne is the clear winner. The accelerator is worth its area when
+side-channel resistance, keeping the key away from software, or freeing the CPU matters.</p>
+</div>
+
+<h2>6. Limits of these results</h2>
+<ul>
+  <li><b>Not the full Carfield path.</b> In Carfield, CVA6 reaches the security island through more
+  interconnect and a mailbox, so the accelerator's bus round trips would cost more than here. These are
+  best-case numbers for the accelerator.</li>
+  <li><b>Entropy stand-in.</b> The accelerator's masking needs random numbers. A simple LFSR replaces
+  OpenTitan's entropy network (one word per 4 cycles, faster than the real one).</li>
+  <li><b>Block area, not chip area.</b> CVA6 itself was not synthesized, so the share of the CPU that Zkne
+  adds is not known yet.</li>
+  <li><b>No energy numbers yet.</b> The flow (VCS switching activity to Cadence Joules) is set up but not run.</li>
+  <li><b>Typical corner only,</b> synthesis without place-and-route; ECB mode on fixed buffers.</li>
+</ul>
+
+<h2>7. Possible next steps</h2>
+<ul>
+  <li>Energy per block, including the CPU's share.</li>
+  <li>The real Carfield path: CVA6 to the security island through the mailbox.</li>
+  <li>Full CVA6 synthesis with and without Zkn (area share, clock impact).</li>
+  <li>Power side-channel leakage of Zkne vs the masked accelerator (TVLA on simulated traces).</li>
+</ul>
+
+<p class="sub" style="font-size:9pt; margin-top:14pt">Everything is reproducible from the repository
+(<code>github.com/gauravv-13/ise-model-protection</code>, branch <code>main</code>): see <code>experiments/e1_cost/README.md</code>.</p>
+
+</body>
+</html>
