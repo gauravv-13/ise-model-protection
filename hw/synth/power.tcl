@@ -22,7 +22,7 @@ read_stimulus -file $env(PWR_SAIF) -dut_instance $env(PWR_DUT) \
     -design_root $env(PWR_ROOT) -alias run -report_missing_signals design \
     -out $out/missing_signals.rpt
 syn_power -effort medium
-compute_power -mode average -stims run
+compute_power -mode average
 report_power -stims run -by_hierarchy -levels 3 -unit mW -out $out/power_hier.rpt
 report_power -stims run -unit mW -out $out/power.rpt
 exit

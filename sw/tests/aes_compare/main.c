@@ -74,13 +74,20 @@ static void __attribute__((unused)) measure(const char *impl, expand_fn ex, buf_
 }
 
 #ifdef ONLY
-// Power runs (make ONLY=sw|zkne|ot): just one method's key setup and largest
-// buffer, so the switching activity of the whole run belongs to it.
+// Power runs (make ONLY=sw|zkne|ot|none): just one method's key setup and
+// largest buffer. ONLY=none does the same start-up and buffer fill without
+// encrypting; subtracting it removes that work from the energy.
 #define STR2(x) #x
 #define STR(x)  STR2(x)
 int main(void) {
     aes128_key_t k;
     for (uint32_t i = 0; i < MAX_BYTES; i++) buf_in[i] = (uint8_t)(i * 7 + 3);
+    // Keep the fill and all buffers even when nothing reads them (ONLY=none),
+    // so every power run does exactly the same start-up work.
+    __asm__ volatile("" :: "r"(buf_in), "r"(buf_sw), "r"(buf_zk) : "memory");
+#ifdef PLATFORM_CVA6
+    __asm__ volatile("" :: "r"(buf_ot) : "memory");
+#endif
     if (__builtin_strcmp(STR(ONLY), "sw") == 0) {
         aes_sw_init(); aes_sw_expand(&k, key); sw_buf(&k, buf_sw, buf_in, MAX_BYTES);
     } else if (__builtin_strcmp(STR(ONLY), "zkne") == 0) {
