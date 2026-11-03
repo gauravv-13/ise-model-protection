@@ -19,7 +19,12 @@ Platform: PULP's Carfield SoC. Honours research project, IIIT Hyderabad.
 | `env/` | Environment setup (`setup.sh`: tool paths, Python env) |
 | `hw/patches` | Changes to CVA6 / Carfield |
 | `hw/rtl` | Own RTL (e.g. masked AES round) |
-| `hw/carfield` | Carfield SoC (git submodule, added later) |
+| `third_party/` | Carfield and upstream CVA6, fetched by `scripts/setup_*.sh` (git-ignored) |
+| `deps/` | Pinned upstream commits |
+| `scripts/` | Setup, simulation (VCS), synthesis (Genus) and power (Joules) drivers |
+| `hw/rtl/aes_periph` | OpenTitan AES as a CVA6 peripheral |
+| `hw/synth` | Synthesis and power scripts and wrappers |
+| `sw/tests/aes_compare` | AES-128: software vs Zkne vs OpenTitan accelerator |
 | `sw/loader` | AES-CTR + CMAC model loader (RISC-V assembly, Zkne) |
 | `sw/drivers` | Security-island mailbox driver |
 | `sw/kernels` | Cluster NN kernels |
