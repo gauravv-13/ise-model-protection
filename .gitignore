@@ -42,3 +42,6 @@ bulk/
 
 # Command output logs (local only)
 logs/
+
+# Upstream code fetched by scripts (Carfield and its dependencies)
+third_party/
