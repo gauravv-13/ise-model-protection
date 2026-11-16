@@ -7,6 +7,7 @@ Genus reports (build/synth/*/) and build/models/models.json, and writes
     load_cycles.csv   one row per model load (every repetition)
     synth.csv         area, slack and instance areas per synthesis run
     summary.md        the tables of the report
+    numbers.json      the headline numbers, formatted
     *.png             charts
 
     .venv/bin/python experiments/report.py
@@ -229,13 +230,14 @@ def charts(loads, synth, res):
         if not pts:
             continue
         ax.plot(*zip(*pts), marker="o", markersize=5, linewidth=2, color=COLOR[method], label=LABEL[method])
-        ax.annotate(SHORT[method], pts[-1], xytext=(7, 0), textcoords="offset points", va="center",
+        dy = {"zkne": 5, "eng_masked": -5}.get(method, 0)        # these two end close together
+        ax.annotate(SHORT[method], pts[-1], xytext=(7, dy), textcoords="offset points", va="center",
                     fontsize=8, color=INK2)
     ax.set_xscale("log"); ax.set_yscale("log")
     ax.set_xlim(right=ax.get_xlim()[1] * 4.5)
     ax.set_xlabel("Model size (bytes)"); ax.set_ylabel("Model-load time (CVA6 cycles)")
     style(ax)
-    ax.legend(frameon=False, fontsize=7.5, loc="upper left")
+    ax.legend(frameon=False, fontsize=7.5, loc="lower right")
     fig.tight_layout(); fig.savefig(os.path.join(OUT, "load_time.png"), dpi=200); plt.close(fig)
 
     # 2. Cycles per byte: whole check + decrypt, and the part the CPU itself works.
@@ -295,14 +297,92 @@ def charts(loads, synth, res):
         ax.plot(sizes, a100, color=COLOR["zkne"], linewidth=2, label="A: Zkne uses the whole CPU")
         ax.plot(sizes, b100, color=COLOR["eng_unmasked"], linewidth=2, label="B: engine is always busy")
         ax.set_xscale("log"); ax.set_yscale("log"); ax.set_xlim(sizes[0], sizes[-1]); ax.set_ylim(lo, hi)
-        for x, y, text in ((2.2e4, 3, "A is enough:\nunder 10 % of the CPU"),
-                           (2.0e5, 55, "A works, at 10-100 %\nof the CPU"),
-                           (1.3e6, 55, "only B\nkeeps up"), (2.5e6, 2e4, "neither keeps up")):
-            ax.text(x, y, text, fontsize=8, color=INK2, ha="center", va="center")
+        def at(curve, x):                                   # value of a curve at size x
+            return curve[min(range(len(sizes)), key=lambda i: abs(sizes[i] - x))]
+        for x, y, text in ((1.2e5, at(a10, 1.2e5) / 12, "A is enough: under 10 % of the CPU"),
+                           (1.2e5, (at(a10, 1.2e5) * at(a100, 1.2e5)) ** 0.5, "A works, at 10-100 % of the CPU"),
+                           (1.2e5, (at(a100, 1.2e5) * at(b100, 1.2e5)) ** 0.5, "only B keeps up"),
+                           (1.2e5, at(b100, 1.2e5) * 8, "neither keeps up")):
+            ax.text(x, y, text, fontsize=8, color=INK2, ha="center", va="center", rotation=-15)
         ax.set_xlabel("Model size (bytes)"); ax.set_ylabel(f"Model reloads per second (at {F_CLK_MHZ:.0f} MHz)")
         style(ax)
-        ax.legend(frameon=False, fontsize=7.5, loc="lower left")
+        ax.legend(frameon=False, fontsize=7.5, loc="upper right")
         fig.tight_layout(); fig.savefig(os.path.join(OUT, "break_even.png"), dpi=200); plt.close(fig)
+
+def key_numbers(loads, synth, models, res):
+    """The headline numbers as ready-to-print strings, for the written report."""
+    n = {"f_clk_mhz": f"{F_CLK_MHZ:.0f}"}
+    for name, m in models.items():
+        n[f"{name}.weights"] = fmt(m["weight_bytes"]); n[f"{name}.blob"] = fmt(m["blob_bytes"])
+        n[f"{name}.acc_float"] = f"{100 * m['acc_float']:.2f}"; n[f"{name}.acc_int8"] = f"{100 * m['acc_int8']:.2f}"
+    for model in MODEL_NAME:
+        sw, zk = steady(loads, model, "sw"), steady(loads, model, "zkne")
+        for method in METHODS:
+            r = steady(loads, model, method)
+            if not r:
+                continue
+            k = f"{model}.{method}."
+            n[k + "total"] = fmt(r["total"]); n[k + "crypto"] = fmt(r["crypto"])
+            n[k + "cpb"] = f"{r['crypto'] / r['bytes']:.2f}" if r["crypto"] / r["bytes"] < 100 else f"{r['crypto'] / r['bytes']:.0f}"
+            n[k + "busy"] = fmt(r["crypto"] - r["wait"])
+            n[k + "busy_cpb"] = f"{(r['crypto'] - r['wait']) / r['bytes']:.2f}"
+            n[k + "tile_latency"] = fmt(r["total"] / r["tiles"])
+            n[k + "ms"] = f"{r['total'] / F_CLK_MHZ / 1e3:.1f}"            # at F_CLK
+            if sw and r["crypto"]:
+                n[k + "vs_sw"] = f"{sw['crypto'] / r['crypto']:.1f}"
+            if zk and r["crypto"]:
+                n[k + "vs_zkne"] = f"{zk['crypto'] / r['crypto']:.2f}"
+        none = steady(loads, model, "none")
+        if none:
+            n[f"{model}.copy_cpb"] = f"{none['total'] / none['bytes']:.2f}"
+    for r in loads:
+        if r["model"] == "mlp_s" and r["rep"] == max(x["rep"] for x in loads if (x["model"], x["method"], x["tile"]) == ("mlp_s", r["method"], r["tile"])):
+            n[f"tile.{r['tile']}.{r['method']}"] = f"{r['crypto'] / r['bytes']:.2f}"
+    for method, (a, b) in res["fit"].items():
+        n[f"fit.{method}.block"] = f"{a:.1f}"; n[f"fit.{method}.cpb"] = f"{a / 16:.2f}"; n[f"fit.{method}.tile"] = fmt(b)
+    if "zkne" in res:
+        n["zkne.instr_per_block"] = f"{res['zkne']['instr_per_block']:.0f}"; n["zkne.cpi"] = f"{res['zkne']['cpi']:.2f}"
+        n["zkne.c_ovh"] = f"{res['zkne']['c_ovh']:.0f}"; n["zkne.aes_cycles"] = f"{40 * res['zkne']['cpi']:.0f}"
+    for method in ("eng_unmasked", "eng_masked"):
+        if method in res:
+            n[f"{method}.block_cycles"] = f"{res[method]['engine_cycles_per_block']:.1f}"
+            n[f"{method}.cpu_per_tile"] = fmt(res[method]["cpu_per_tile"])
+    if res.get("copy_cpb"):
+        n["copy.cpb"] = f"{res['copy_cpb']:.2f}"; n["copy.bytes_per_cycle"] = f"{1 / res['copy_cpb']:.1f}"
+    ar = res["area"]
+    for k, v in ar.items():
+        n[f"area.{k}"] = f"{v:.1f}"
+    if "cva6_base" in ar:
+        for k in ("zkne", "zkn"):
+            if k in ar:
+                n[f"area.{k}_pct"] = f"{100 * ar[k] / ar['cva6_base']:.1f}"
+    for k in ("eng_unmasked", "eng_masked"):
+        if k in ar and "dma" in ar:
+            n[f"area.{k}_aes"] = f"{ar[k] - ar['dma']:.1f}"
+        if k in ar and "zkne" in ar:
+            n[f"area.{k}_vs_zkne"] = f"{ar[k] / ar['zkne']:.1f}"
+        if k in ar and k in res["fit"]:
+            n[f"eff.{k}"] = f"{1000 / (res['fit'][k][0] / 16) / ar[k]:.1f}"
+    if "zkne" in ar and "zkne" in res["fit"]:
+        n["eff.zkne"] = f"{1000 / (res['fit']['zkne'][0] / 16) / ar['zkne']:.1f}"
+    u = synth_kge(synth, "zkne_unit")
+    if u:
+        n["area.zkne_unit"] = f"{u:.1f}"
+    for r in synth:                                      # tight-clock runs: best period reached
+        if r["design"].startswith("cva6") and r["period_ns"] < 4.0:
+            reached = r["period_ns"] - min(r["slack_ns"], 0.0)
+            n[f"fmax.{r['design']}"] = f"{1000 / reached:.0f}"; n[f"fmax.{r['design']}_ns"] = f"{reached:.2f}"
+            n[f"fmax.{r['design']}_target"] = f"{r['period_ns']:g}"; n[f"fmax.{r['design']}_kge"] = f"{r['kge']:.1f}"
+    if "zkne" in res["fit"]:
+        a_a, b_a = res["fit"]["zkne"]
+        n["rate.zkne_full"] = f"{F_CLK_MHZ / (a_a / 16):.1f}"; n["rate.zkne_10pct"] = f"{0.1 * F_CLK_MHZ / (a_a / 16):.1f}"
+        for method in ("eng_unmasked", "eng_masked"):
+            if method in res["fit"]:
+                a_b, b_b = res["fit"][method]
+                blocks = (b_b - b_a) / (a_a - a_b)
+                n[f"even.{method}.bytes"] = fmt(16 * blocks); n[f"even.{method}.ratio"] = f"{a_a / a_b:.1f}"
+                n[f"rate.{method}"] = f"{F_CLK_MHZ / ((a_b + b_b / 256) / 16):.0f}"       # MB/s, 4 KB tiles
+    return n
 
 
 def main():
@@ -370,6 +450,9 @@ def main():
                       f"{r['slack_ns']:+.3f} |")
 
     analysis = analyse(loads, synth, md)
+    numbers = key_numbers(loads, synth, models, analysis)
+    with open(os.path.join(OUT, "numbers.json"), "w") as fh:
+        json.dump(numbers, fh, indent=1, sort_keys=True)
     with open(os.path.join(OUT, "summary.md"), "w") as fh:
         fh.write("\n".join(md) + "\n")
     print("\n".join(md))
