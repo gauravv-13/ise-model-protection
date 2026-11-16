@@ -19,31 +19,36 @@ on crypto (for the engine: set-up and tag check, not the wait).
 
 | Model | Method | Total cycles | Check + decrypt | cycles/byte | CPU busy | vs software | vs Zkne |
 |---|---|---:|---:|---:|---:|---:|---:|
-| Tiny CNN | No protection (copy only) | 9,275 | 0 | 0.00 | 0 | - | - |
-| Tiny CNN | Software AES (baseline) | 1,776,531 | 1,767,793 | 143.49 | 1,767,793 | 1.0x | 0.07x |
-| Tiny CNN | A: Zkne instructions | 130,666 | 121,204 | 9.84 | 121,204 | 14.6x | 1.00x |
-| Tiny CNN | B: OpenTitan AES + DMA, unmasked | 43,037 | 33,801 | 2.74 | 6,987 | 52.3x | 3.59x |
-| Tiny CNN | B: OpenTitan AES + DMA, masked | 99,549 | 90,111 | 7.31 | 7,610 | 19.6x | 1.35x |
-| MLP 784-128-10 | No protection (copy only) | 74,364 | 0 | 0.00 | 0 | - | - |
-| MLP 784-128-10 | Software AES (baseline) | 14,737,184 | 14,661,163 | 143.35 | 14,661,163 | 1.0x | 0.07x |
-| MLP 784-128-10 | A: Zkne instructions | 1,077,700 | 1,001,167 | 9.79 | 1,001,167 | 14.6x | 1.00x |
-| MLP 784-128-10 | B: OpenTitan AES + DMA, unmasked | 340,195 | 266,769 | 2.61 | 42,123 | 55.0x | 3.75x |
-| MLP 784-128-10 | B: OpenTitan AES + DMA, masked | 811,534 | 735,625 | 7.19 | 47,641 | 19.9x | 1.36x |
-| MLP 784-1024-256-10 | No protection (copy only) | 786,106 | 0 | 0.00 | 0 | - | - |
+| Tiny CNN | No protection (copy only) | 9,239 | 0 | 0.00 | 0 | - | - |
+| Tiny CNN | Software AES (baseline) | 1,746,103 | 1,736,792 | 140.97 | 1,736,792 | 1.0x | 0.07x |
+| Tiny CNN | A: Zkne instructions | 128,123 | 118,812 | 9.64 | 118,812 | 14.6x | 1.00x |
+| Tiny CNN | B: OpenTitan AES + DMA, unmasked | 44,227 | 34,936 | 2.84 | 6,656 | 49.7x | 3.40x |
+| Tiny CNN | B: OpenTitan AES + DMA, masked | 103,451 | 94,160 | 7.64 | 7,240 | 18.4x | 1.26x |
+| MLP 784-128-10 | No protection (copy only) | 74,643 | 0 | 0.00 | 0 | - | - |
+| MLP 784-128-10 | Software AES (baseline) | 14,481,407 | 14,406,067 | 140.86 | 14,406,067 | 1.0x | 0.07x |
+| MLP 784-128-10 | A: Zkne instructions | 1,054,765 | 979,425 | 9.58 | 979,425 | 14.7x | 1.00x |
+| MLP 784-128-10 | B: OpenTitan AES + DMA, unmasked | 349,073 | 273,852 | 2.68 | 40,600 | 52.6x | 3.58x |
+| MLP 784-128-10 | B: OpenTitan AES + DMA, masked | 840,078 | 764,863 | 7.48 | 44,675 | 18.8x | 1.28x |
+| MLP 784-1024-256-10 | No protection (copy only) | 782,399 | 0 | 0.00 | 0 | - | - |
+| MLP 784-1024-256-10 | A: Zkne instructions | 11,066,791 | 10,277,056 | 9.58 | 10,277,056 | - | 1.00x |
+| MLP 784-1024-256-10 | B: OpenTitan AES + DMA, unmasked | 3,660,471 | 2,872,046 | 2.68 | 425,488 | - | 3.58x |
+| MLP 784-1024-256-10 | B: OpenTitan AES + DMA, masked | 8,811,526 | 8,021,541 | 7.48 | 466,894 | - | 1.28x |
 
 ## Tile size (100 KB model): check + decrypt, cycles/byte
 
 | Tile | A: Zkne | B: engine | B: engine, masked |
 |---:|---:|---:|---:|
-| 1,024 B | 10.44 | 4.00 | 8.88 |
-| 4,096 B | 9.79 | 2.61 | 7.19 |
-| 16,384 B | 9.61 | 2.27 | 6.86 |
-| 65,536 B | 9.55 | 2.17 | 6.72 |
+| 1,024 B | 10.19 | 3.96 | 8.90 |
+| 4,096 B | 9.58 | 2.68 | 7.48 |
+| 16,384 B | 9.44 | 2.37 | 7.13 |
+| 65,536 B | 9.40 | 2.28 | 7.04 |
 
 ## Area and timing (65 nm LP, logic only)
 
 | Design | Clock (ns) | Area (um^2) | kGE | Slack (ns) |
 |---|---:|---:|---:|---:|
+| cva6_base | 4 | 538,305 | 373.8 | +0.000 |
+| cva6_zkne | 4 | 547,860 | 380.5 | +0.000 |
 | dma | 4 | 19,927 | 13.8 | +1.446 |
 | engine_unmasked | 4 | 74,458 | 51.7 | +0.000 |
 
@@ -53,19 +58,22 @@ Check + decrypt cycles = a x (16-byte blocks) + b x (tiles), least squares over 
 
 | Method | a: cycles per block | cycles per byte | b: cycles per tile |
 |---|---:|---:|---:|
-| Software AES (baseline) | 2287.1 | 142.94 | 1,684 |
-| A: Zkne instructions | 152.7 | 9.55 | 918 |
-| B: OpenTitan AES + DMA, unmasked | 34.2 | 2.14 | 1,900 |
-| B: OpenTitan AES + DMA, masked | 106.8 | 6.68 | 2,244 |
+| Software AES (baseline) | 2248.3 | 140.52 | 1,409 |
+| A: Zkne instructions | 150.1 | 9.38 | 824 |
+| B: OpenTitan AES + DMA, unmasked | 36.0 | 2.25 | 1,753 |
+| B: OpenTitan AES + DMA, masked | 112.0 | 7.00 | 1,945 |
 
-Option A (proposal model T_A = N_blk x (2 R k CPI + c_ovh), 2 R k = 40): 142.3 instructions per block at CPI 1.10; the 40 AES instructions take 44 cycles, so c_ovh = 113 cycles per block (44 round-key loads, 44 XORs, data load/store, counter).
+Option A (proposal model T_A = N_blk x (2 R k CPI + c_ovh), 2 R k = 40): 142.3 instructions per block at CPI 1.08; the 40 AES instructions take 43 cycles, so c_ovh = 110 cycles per block (44 round-key loads, 44 XORs, data load/store, counter).
 
-B: OpenTitan AES + DMA, unmasked (T_B = max(S/BW_mem, N_blk/Theta_eng) + c_setup): the engine takes 17.6 cycles per block per pass (Theta_eng = 1/17.6), two passes (CMAC, then CTR); c_setup = 1,685 CPU cycles per tile. Memory is not the limit: a DMA copy takes 0.36 cycles per byte (BW_mem = 2.7 bytes per cycle).
+B: OpenTitan AES + DMA, unmasked (T_B = max(S/BW_mem, N_blk/Theta_eng) + c_setup): the engine takes 18.2 cycles per block per pass (Theta_eng = 1/18.2), two passes (CMAC, then CTR); c_setup = 1,624 CPU cycles per tile. Memory is not the limit: a DMA copy takes 0.36 cycles per byte (BW_mem = 2.8 bytes per cycle).
 
-B: OpenTitan AES + DMA, masked (T_B = max(S/BW_mem, N_blk/Theta_eng) + c_setup): the engine takes 53.8 cycles per block per pass (Theta_eng = 1/53.8), two passes (CMAC, then CTR); c_setup = 1,906 CPU cycles per tile. Memory is not the limit: a DMA copy takes 0.36 cycles per byte (BW_mem = 2.7 bytes per cycle).
+B: OpenTitan AES + DMA, masked (T_B = max(S/BW_mem, N_blk/Theta_eng) + c_setup): the engine takes 56.3 cycles per block per pass (Theta_eng = 1/56.3), two passes (CMAC, then CTR); c_setup = 1,782 CPU cycles per tile. Memory is not the limit: a DMA copy takes 0.36 cycles per byte (BW_mem = 2.8 bytes per cycle).
 
 ## Break-even
 
-- Time: B: engine is faster than Zkne once a tile has more than 8 blocks (133 bytes); for large tiles it is 4.46x faster.
-- Time: B: engine, masked is faster than Zkne once a tile has more than 29 blocks (462 bytes); for large tiles it is 1.43x faster.
-- CPU: with Zkne the CPU does all the work, 9.55 cycles per byte. At 250 MHz that is 26.2 MB/s with the whole CPU, 2.62 MB/s with 10 % of it. Beyond that load rate (model size x reloads per second) the engine is the only option.
+- Time: B: engine is faster than Zkne once a tile has more than 8 blocks (130 bytes); for large tiles it is 4.17x faster.
+- Time: B: engine, masked is faster than Zkne once a tile has more than 29 blocks (472 bytes); for large tiles it is 1.34x faster.
+- Area: Zkne adds 6.6 kGE to CVA6 (1.77 % of the 374 kGE core logic); the unmasked engine with DMA is 51.7 kGE, 7.8x as much.
+  - A: Zkne: 16.1 bytes per 1000 cycles per added kGE
+  - B: engine: 8.6 bytes per 1000 cycles per added kGE
+- CPU: with Zkne the CPU does all the work, 9.38 cycles per byte. At 250 MHz that is 26.7 MB/s with the whole CPU, 2.67 MB/s with 10 % of it. Beyond that load rate (model size x reloads per second) the engine is the only option.
