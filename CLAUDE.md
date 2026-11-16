@@ -2,37 +2,42 @@
 
 ## Project
 
-ISE-Based Model Protection for RISC-V AI Accelerators. Protecting neural-network
-models on a RISC-V SoC using the host CPU's own AES instructions (RISC-V Zkne on
-CVA6) instead of the on-chip security engine. The CVA6 host decrypts (AES-CTR)
-and checks (AES-CMAC) every model block (weights, layer descriptors and kernel
-code) before the PULP accelerator clusters use it. We compare area, load latency
-and CPU cost against Carfield's OpenTitan-based security island, and test
-against bit-flip (RowHammer-style) and power side-channel attacks.
+ISE-Based Model Protection for RISC-V AI Accelerators. Compare two ways to
+decrypt (AES-CTR) and authenticate (AES-CMAC) neural-network weights before an
+accelerator uses them: (A) Zkne AES instructions in the CVA6 host, (B) a
+dedicated engine, OpenTitan AES + DMA on the system bus. Metrics: added area,
+Fmax, model-load time, CPU busy time. Baselines: no protection, software AES.
+Proposal: `docs/proposal/`. Honours research project, IIIT Hyderabad.
 
-Platform: PULP's Carfield SoC. Honours research project, IIIT Hyderabad.
+Platform as built: upstream CVA6 (has Zkn) in its own VCS test harness, with
+the engines added as AXI masters. Carfield's CVA6 has no Zkn and Carfield needs
+QuestaSim, so the PULP cluster and HyperRAM are not simulated (DMA copies stand
+in for them). Synthesis: Genus, TSMC 65 nm LP.
 
-Current focus (small project for the advisor, 2026-11): AES-128 on CVA6 three
-ways (software, Zkne instructions, OpenTitan AES accelerator on CVA6's bus),
-compared in cycles, area and energy. Carfield's own CVA6 has no Zkn, so
-upstream CVA6 runs standalone in VCS. See `experiments/e1_cost/`.
-
-See `README.md` for the folder guide.
+See `README.md` for the folder guide and the full reproduce sequence.
 
 ## Conventions
 
-- Heavy work (building Carfield, toolchains, RTL simulation, synthesis) runs on
-  the shared Linux workstation, not on the laptop.
+- Heavy work (RTL simulation, synthesis) runs on the shared Linux workstation,
+  not on the laptop.
 - Large files (datasets, traces, waveforms, bulk results, tool installs) stay
-  outside the repo. Keep only small summarized results in `experiments/*/results`.
+  outside the repo. Keep only small summarized results in `experiments/results`.
+  MNIST lives in `~/ise-data/mnist`.
 - Use at most `-j4` for builds and run long jobs with `nice` (shared machine).
+  RAM is the tight resource: check `free -h` before starting Genus on CVA6.
 - Ask before any large download (toolchains, datasets, submodules, EDA tools).
-- Upstream code lives in git-ignored `third_party/` (Carfield, CVA6), fetched at
-  the commits in `deps/` by `scripts/setup_carfield.sh` and `scripts/setup_cva6.sh`.
-  Never edit it by hand: changes go in `hw/patches/` and the setup scripts apply them.
+- Upstream code lives in git-ignored `third_party/` (CVA6, OpenTitan AES),
+  fetched at the commits in `deps/` by `scripts/setup_cva6.sh` and
+  `scripts/setup_opentitan.sh`. Changes to CVA6 go in `hw/patches/cva6/`
+  (regenerate the patch with `git diff` in the checkout); the setup script
+  applies them.
 - Source `env/setup.sh` before running tools.
-- Main flows: `scripts/cva6_sim.sh` (VCS), `scripts/synth.sh` (Genus),
-  `scripts/power.sh` (Joules). Outputs in `build/`, long logs in `logs/` (both ignored).
+- Main flows: `scripts/cva6_sim.sh` (VCS harness), `scripts/engine_tb.sh`
+  (engine unit test), `experiments/run_sweep.sh` (all load measurements),
+  `scripts/synth.sh` (Genus), `experiments/report.py` (tables and charts).
+  Outputs in `build/`, long logs in `logs/` (both ignored).
+- The harness must be built with `NO_TRACE` (the scripts do): CVA6's
+  instruction tracers otherwise write about 100 bytes per instruction.
 - Never copy PDK/library files into the repo, and never commit licence server
   addresses or details about other users.
 - Commit on branch `setup`; ask before pushing to `main`.

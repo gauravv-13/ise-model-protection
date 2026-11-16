@@ -122,9 +122,13 @@ module aes_engine_tb;
     for (int i = 0; i < 4; i++) begin rdreg(12'h064 + 4*i, w); blk[32*i+:32] = w; end
     if (blk !== 128'h0a1357305d36cdf0e3b769d00a55274b) begin errors++; $display("  CBC-MAC wrong: %h", blk); end
 
-    $display("AES (ECB) 64 blocks, timing");
+    $display("Timing: AES (ECB) 64 blocks, SINK (CBC) 256 blocks, AES (CTR) 256 blocks");
     setup(32'h2105, Key, '0);
     dma(32'h0000, 32'h1000, 1024, 2'd1);
+    setup(32'h2109, Key, '0);
+    dma(32'h0000, 32'h0000, 4096, 2'd2);
+    setup(32'h2141, Key, '0);                       // CTR
+    dma(32'h0000, 32'h1000, 4096, 2'd1);
 
     if (errors == 0) $display("ENGINE TB PASS");
     else             $display("ENGINE TB FAIL (%0d errors)", errors);
