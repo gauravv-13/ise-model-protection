@@ -1,0 +1,18 @@
+# Mark the device address range (below the RAM at 0x8000_0000) as
+# non-idempotent, so CVA6 never reads a device register speculatively.
+# The stock configuration has no such range (its test bench has no devices
+# that mind); a stray read of the AES output registers would lose a block.
+
+diff --git a/core/include/cv64a6_imafdc_sv39_config_pkg.sv b/core/include/cv64a6_imafdc_sv39_config_pkg.sv
+index 707ecc1..ce6461e 100644
+--- a/core/include/cv64a6_imafdc_sv39_config_pkg.sv
++++ b/core/include/cv64a6_imafdc_sv39_config_pkg.sv
+@@ -135,7 +135,7 @@ package cva6_config_pkg;
+       NOCType: config_pkg::NOC_TYPE_AXI4_ATOP,
+       NrNonIdempotentRules: unsigned'(2),
+       NonIdempotentAddrBase: 1024'({64'b0, 64'b0}),
+-      NonIdempotentLength: 1024'({64'b0, 64'b0}),
++      NonIdempotentLength: 1024'({64'b0, 64'h8000_0000}),  // devices below the RAM: no speculative access
+       NrExecuteRegionRules: unsigned'(3),
+       ExecuteRegionAddrBase: 1024'({64'h8000_0000, 64'h1_0000, 64'h0}),
+       ExecuteRegionLength: 1024'({64'h40000000, 64'h10000, 64'h1000}),

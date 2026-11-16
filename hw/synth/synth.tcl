@@ -3,6 +3,7 @@
 #   SYN_LIB      Liberty file          SYN_TOP     top module
 #   SYN_FILES    file with one source per line (packages first)
 #   SYN_INCDIRS  space-separated include folders
+#   SYN_DEFINES  space-separated defines (SYNTHESIS is always set)
 #   SYN_PERIOD   clock period in ns    SYN_OUT     output folder
 set out    $env(SYN_OUT)
 set top    $env(SYN_TOP)
@@ -11,12 +12,15 @@ set period $env(SYN_PERIOD)                       ;# ns, the library time unit
 set_db max_cpus_per_server 4
 set_db information_level 1
 set_db init_hdl_search_path $env(SYN_INCDIRS)
+# Memory macros (CVA6 cache SRAMs) are left out of the file list on purpose:
+# they stay black boxes and are not part of the logic area.
+set_db hdl_error_on_blackbox false
 read_libs $env(SYN_LIB)
 
 set fh [open $env(SYN_FILES)]
 set files [split [string trim [read $fh]] "\n"]
 close $fh
-read_hdl -sv -define SYNTHESIS $files
+read_hdl -sv -define [concat SYNTHESIS $env(SYN_DEFINES)] $files
 elaborate $top
 check_design -unresolved > $out/check_design.rpt
 
@@ -34,10 +38,8 @@ syn_generic
 syn_map
 syn_opt
 
-report_area   > $out/area.rpt
+report_area -depth 4 > $out/area.rpt
 report_gates  > $out/gates.rpt
 report_timing > $out/timing.rpt
 report_qor    > $out/qor.rpt
-write_hdl     > $out/netlist.v
-write_sdc     > $out/constraints.sdc
 exit
