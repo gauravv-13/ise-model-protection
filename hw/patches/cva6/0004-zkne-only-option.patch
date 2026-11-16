@@ -1,0 +1,51 @@
+# ZKNE_ONLY (off by default, synthesis only): keep just the four RV64 Zkne
+# instructions (aes64es, aes64esm, aes64ks1i, aes64ks2) in the Zkn unit and
+# drop the Zbkb/Zbkx results in the ALU. Used to size "CVA6 with Zkne" between
+# "no Zkn" and "full Zkn". The decoder is not changed.
+
+diff --git a/core/aes.sv b/core/aes.sv
+index d79a5dd..b89050b 100644
+--- a/core/aes.sv
++++ b/core/aes.sv
+@@ -213,11 +213,12 @@ module aes
+         unique case (fu_data_i.operation)
+           AES64ES: result_o = aes64es_gen;
+           AES64ESM: result_o = aes64esm_gen;
++          AES64KS1I: result_o = aes64ks1i_gen;
++          AES64KS2: result_o = aes64ks2_gen;
++`ifndef ZKNE_ONLY  // ZKNE_ONLY: keep only the four RV64 Zkne instructions (area study)
+           AES64DS: result_o = aes64ds_gen;
+           AES64DSM: result_o = aes64dsm_gen;
+           AES64IM: result_o = aes64im_gen;
+-          AES64KS1I: result_o = aes64ks1i_gen;
+-          AES64KS2: result_o = aes64ks2_gen;
+           SHA256SIG0: result_o = {{32{sha256sig0_gen[31]}}, sha256sig0_gen};
+           SHA256SIG1: result_o = {{32{sha256sig1_gen[31]}}, sha256sig1_gen};
+           SHA256SUM0: result_o = {{32{sha256sum0_gen[31]}}, sha256sum0_gen};
+@@ -226,6 +227,7 @@ module aes
+           SHA512SIG1: result_o = sha512sig1_gen;
+           SHA512SUM0: result_o = sha512sum0_gen;
+           SHA512SUM1: result_o = sha512sum1_gen;
++`endif
+           default: ;
+         endcase
+       end
+diff --git a/core/alu.sv b/core/alu.sv
+index 2a83c8c..292a7ae 100644
+--- a/core/alu.sv
++++ b/core/alu.sv
+@@ -391,6 +391,7 @@ module alu
+       endcase
+     end
+     // ZKN instructions
++`ifndef ZKNE_ONLY  // ZKNE_ONLY: no Zbkb/Zbkx results (area study)
+     if (CVA6Cfg.ZKN && CVA6Cfg.RVB) begin
+       unique case (fu_data_i.operation)
+         PACK:
+@@ -409,5 +410,6 @@ module alu
+         if (fu_data_i.operation == ZIP) result_o = zip_gen;
+       end
+     end
++`endif
+   end
+ endmodule
