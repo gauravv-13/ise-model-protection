@@ -5,11 +5,12 @@
 #   SYN_INCDIRS  space-separated include folders
 #   SYN_DEFINES  space-separated defines (SYNTHESIS is always set)
 #   SYN_PERIOD   clock period in ns    SYN_OUT     output folder
+#   SYN_CPUS     CPUs Genus may use
 set out    $env(SYN_OUT)
 set top    $env(SYN_TOP)
 set period $env(SYN_PERIOD)                       ;# ns, the library time unit
 
-set_db max_cpus_per_server 4
+set_db max_cpus_per_server $env(SYN_CPUS)          ;# each extra CPU is another Genus process (RAM)
 set_db information_level 1
 set_db init_hdl_search_path $env(SYN_INCDIRS)
 # Memory macros (CVA6 cache SRAMs) are left out of the file list on purpose:

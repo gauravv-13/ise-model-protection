@@ -7,22 +7,24 @@
 #   cva6_zkn         CVA6 with all of Zkn, as upstream (AES enc+dec, SHA-2, Zbkb/Zbkx)
 #   engine_unmasked  OpenTitan AES without masking + DMA                 (Option B)
 #   engine_masked    OpenTitan AES, default (masked, DOM S-box) + DMA
+#   dma              the DMA of Option B alone (hw/engine/aes_dma.sv)
 #   zkne_unit        CVA6's Zkn unit alone, Zkne instructions only (cross-check)
 # CVA6's cache memories are black boxes: areas are logic only.
 # Output: build/synth/<design>[_<period>ns]/ (reports); log in logs/.
-# The library path is lab-specific; set SYN_LIB to override.
+# The library path is lab-specific; set SYN_LIB to override. SYN_CPUS (default 4)
+# sets how many CPUs Genus uses; each one is a process of 1-3 GB.
 set -euo pipefail
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 CVA6=$REPO_ROOT/third_party/cva6
 OT=$REPO_ROOT/third_party/opentitan
-design=${1:?usage: $0 <cva6_base|cva6_zkne|cva6_zkn|engine_unmasked|engine_masked|zkne_unit> [period_ns]}
+design=${1:?usage: $0 <cva6_base|cva6_zkne|cva6_zkn|engine_unmasked|engine_masked|dma|zkne_unit> [period_ns]}
 export SYN_PERIOD=${2:-4.0}
 export SYN_LIB=${SYN_LIB:-/eda/pdk/mybox-selected/Standard_Cell/core_cell_library/9-track/tcbn65lp_220a/FE/NLDM_extracted/TSMCHOME/digital/Front_End/timing_power_noise/NLDM/tcbn65lp_220a/tcbn65lptc.lib}
 tag=$design$([ "$SYN_PERIOD" = 4.0 ] || echo "_${SYN_PERIOD}ns")
 export SYN_OUT=$REPO_ROOT/build/synth/$tag
 mkdir -p "$SYN_OUT" "$REPO_ROOT/logs"
-export SYN_FILES=$SYN_OUT/files.txt SYN_DEFINES=""
+export SYN_FILES=$SYN_OUT/files.txt SYN_DEFINES="" SYN_CPUS=${SYN_CPUS:-4}
 
 case $design in
   cva6_*)
@@ -49,8 +51,8 @@ case $design in
     } > "$SYN_FILES"
     export SYN_INCDIRS="$CVA6/core/include $CVA6/vendor/pulp-platform/common_cells/include"
     ;;
-  engine_unmasked|engine_masked)
-    export SYN_TOP=aes_$design
+  engine_unmasked|engine_masked|dma)
+    if [ "$design" = dma ]; then export SYN_TOP=aes_dma; else export SYN_TOP=aes_$design; fi
     python3 "$REPO_ROOT/hw/engine/gen_flist.py" "$OT" "$SYN_OUT/ot_aes.f" >/dev/null
     # Memory primitives (RAM/ROM/OTP/flash models) are not used by AES and
     # contain simulation-only code Genus cannot parse.

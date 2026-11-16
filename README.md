@@ -1,49 +1,59 @@
 # ISE-Based Model Protection for RISC-V AI Accelerators
 
-Protecting neural-network models on a RISC-V SoC using the host CPU's own AES
-instructions (RISC-V Zkne on CVA6) instead of the on-chip security engine. The
-CVA6 host decrypts (AES-CTR) and checks (AES-CMAC) every model block (weights,
-layer descriptors and kernel code) before the PULP accelerator clusters use it.
-We compare area, load latency and CPU cost against Carfield's OpenTitan-based
-security island, and test against bit-flip (RowHammer-style) and power
-side-channel attacks.
+Two ways to decrypt (AES-CTR) and authenticate (AES-CMAC) neural-network
+weights before an accelerator uses them, compared in area and model-load time:
 
-Platform: PULP's Carfield SoC. Honours research project, IIIT Hyderabad.
+- **Option A**: AES instructions (RISC-V Zkne) in the CVA6 host CPU.
+- **Option B**: a dedicated AES engine, the OpenTitan AES block with a DMA on
+  the system bus.
+
+Baselines: no protection, and software AES on CVA6. Proposal:
+`docs/proposal/`. Results and report: `experiments/results/`, `docs/report/`.
+
+Honours research project, IIIT Hyderabad.
+
+## What is measured, and on what
+
+Upstream CVA6 (RV64GC with Zkn) runs in its own test harness (CVA6, AXI
+crossbar, memory) in Synopsys VCS. The AES engines are added to that harness as
+bus masters. Carfield's own CVA6 has no Zkn and Carfield only simulates in
+QuestaSim, which the lab does not have, so the PULP cluster and HyperRAM are
+not simulated: one DMA copy stands in for "off-chip memory to L2" and one for
+"L2 to cluster L1". Area and timing come from Cadence Genus at TSMC 65 nm LP.
 
 ## Folder guide
 
 | Path | Contents |
 |------|----------|
 | `docs/proposal` | Research proposal |
-| `docs/references` | Paper notes |
-| `env/` | Environment setup (`setup.sh`: tool paths, Python env) |
-| `hw/patches` | Changes to CVA6 / Carfield |
-| `hw/rtl` | Own RTL (e.g. masked AES round) |
-| `third_party/` | Carfield and upstream CVA6, fetched by `scripts/setup_*.sh` (git-ignored) |
-| `deps/` | Pinned upstream commits |
-| `scripts/` | Setup, simulation (VCS), synthesis (Genus) and power (Joules) drivers |
-| `hw/rtl/aes_periph` | OpenTitan AES as a CVA6 peripheral |
-| `hw/synth` | Synthesis and power scripts and wrappers |
-| `sw/tests/aes_compare` | AES-128: software vs Zkne vs OpenTitan accelerator |
-| `sw/loader` | AES-CTR + CMAC model loader (RISC-V assembly, Zkne) |
-| `sw/drivers` | Security-island mailbox driver |
-| `sw/kernels` | Cluster NN kernels |
-| `sw/tests/vectors` | AES / CMAC / Zkne test vectors |
-| `models/train` | PyTorch training and quantization |
-| `models/export` | Export to binary model image |
-| `tools/encrypt` | Model encryption and packing |
-| `tools/bitflip` | Bit-flip fault injector |
-| `tools/leakage` | TVLA / CPA leakage analysis |
-| `sim/spike` | Spike ISA simulation |
-| `sim/rtl` | RTL simulation |
-| `fpga/` | FPGA prototype (stretch goal) |
-| `experiments/e1_cost` | Area, load latency, CPU cost vs. security island |
-| `experiments/e2_bitflip` | Bit-flip robustness |
-| `experiments/e3_leakage` | Power side-channel leakage |
-| `experiments/e4_granularity` | Protection block-size study |
-| `paper/` | Paper / thesis write-up |
+| `docs/report` | Final report (PDF and source) |
+| `docs/workstation.md` | Lab workstation notes (tools, paths) |
+| `env/setup.sh` | Environment setup (tool paths, Python env) |
+| `deps/` | Pinned upstream commits (CVA6, OpenTitan) |
+| `third_party/` | Upstream CVA6 and OpenTitan AES, fetched by `scripts/setup_*.sh` (git-ignored) |
+| `hw/patches/cva6` | Our changes to CVA6, applied by `scripts/setup_cva6.sh` |
+| `hw/engine` | Option B: DMA with AES streaming mode around OpenTitan AES, harness wrapper, unit test |
+| `hw/synth` | Genus script and wrappers |
+| `sw/loader` | Model loader: Zkne assembly (Option A), engine driver (Option B), software AES, int8 inference check |
+| `models/train.py` | Trains and quantizes the int8 workloads (MNIST: tiny CNN, two MLPs) |
+| `tools/` | Model image packer (AES-CTR + CMAC per tile) and AES reference |
+| `scripts/` | Setup, simulation (VCS) and synthesis (Genus) drivers |
+| `experiments/` | Sweep runner, report script, results |
 
-Each experiment folder has `config/`, `scripts/` and `results/`.
+## Reproduce
 
-## Getting started
+On the lab workstation (about 4 hours, mostly the software-AES run of the
+1 MB model and CVA6 synthesis):
 
+    source env/setup.sh
+    scripts/setup_cva6.sh && scripts/setup_opentitan.sh
+    python3 models/train.py                     # needs MNIST in ~/ise-data/mnist
+    scripts/engine_tb.sh && scripts/engine_tb.sh masked
+    make -C sw/loader MODEL=cnn METHOD=zkne spike
+    scripts/cva6_sim.sh build
+    experiments/run_sweep.sh
+    for d in cva6_base cva6_zkne cva6_zkn engine_unmasked engine_masked; do scripts/synth.sh $d; done
+    python3 experiments/report.py
+
+MNIST (four `.gz` files, 11 MB) is not in the repository; `models/train.py`
+reads it from `~/ise-data/mnist`.

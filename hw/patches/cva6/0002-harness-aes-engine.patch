@@ -1,9 +1,11 @@
 # Test harness changes, all behind defines (off by default):
-#   MOCK_UART   use the mock UART (instant $write) instead of the 115200-baud UART
-#   AES_ENGINE  put the two AES engines (hw/engine: OpenTitan AES + DMA, unmasked
-#               and masked) in the GPIO slot at 0x4000_0000, give each a master
-#               port on the AXI crossbar, and grow the memory to 16 MB
-#   NO_TRACE    do not write instruction traces (about 100 bytes per instruction)
+#   MOCK_UART       use the mock UART (instant $write) instead of the 115200-baud UART
+#   AES_ENGINE      put the two AES engines (hw/engine: OpenTitan AES + DMA, unmasked
+#                   and masked) in the GPIO slot at 0x4000_0000, give each a master
+#                   port on the AXI crossbar, and grow the memory to 16 MB
+#   NO_TRACE        do not write instruction traces (about 100 bytes per instruction)
+#   EXIT_ON_TOHOST  end the test when the tracer sees the write to tohost, so the
+#                   simulated debugger can be switched off (+debug_disable)
 
 diff --git a/common/local/util/instr_tracer.sv b/common/local/util/instr_tracer.sv
 index dad2f29..0f770cb 100644
@@ -88,10 +90,24 @@ index 22e3276..9916ec2 100644
      logic rst_ni;
      logic rtc_i;
 diff --git a/corev_apu/tb/ariane_testharness.sv b/corev_apu/tb/ariane_testharness.sv
-index 6e1d7a2..1645e29 100644
+index 6e1d7a2..f03ffb0 100644
 --- a/corev_apu/tb/ariane_testharness.sv
 +++ b/corev_apu/tb/ariane_testharness.sv
-@@ -375,6 +375,23 @@ module ariane_testharness #(
+@@ -143,7 +143,13 @@ module ariane_testharness #(
+   if (ariane_pkg::RVFI) begin
+     assign exit_o              = (jtag_enable[0]) ? jtag_exit          : rvfi_exit;
+   end else begin
++`ifdef EXIT_ON_TOHOST
++    // With +debug_disable the debugger cannot report the exit: end the test
++    // when the tracer sees the write to tohost.
++    assign exit_o              = (jtag_enable[0]) ? jtag_exit          : (dmi_exit | tracer_exit);
++`else
+     assign exit_o              = (jtag_enable[0]) ? jtag_exit          : dmi_exit;
++`endif
+   end
+   assign jtag_resp_valid     = (jtag_enable[0]) ? debug_resp_valid   : 1'b0;
+   assign dmi_resp_valid      = (jtag_enable[0]) ? 1'b0               : debug_resp_valid;
+@@ -375,6 +381,23 @@ module ariane_testharness #(
    // GPIO
    // ------------------------------
  
@@ -115,7 +131,7 @@ index 6e1d7a2..1645e29 100644
    // GPIO not implemented, adding an error slave here
  
    ariane_axi_soc::req_slv_t  gpio_req;
-@@ -392,6 +409,7 @@ module ariane_testharness #(
+@@ -392,6 +415,7 @@ module ariane_testharness #(
      .slv_req_i  ( gpio_req ),
      .slv_resp_o ( gpio_resp )
    );
@@ -123,7 +139,7 @@ index 6e1d7a2..1645e29 100644
  
  
    // ------------------------------
-@@ -583,10 +601,12 @@ module ariane_testharness #(
+@@ -583,10 +607,12 @@ module ariane_testharness #(
      .AxiDataWidth ( AXI_DATA_WIDTH               ),
      .AxiIdWidth   ( ariane_axi_soc::IdWidthSlave ),
      .AxiUserWidth ( AXI_USER_WIDTH               ),
