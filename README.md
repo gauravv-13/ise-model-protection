@@ -8,9 +8,29 @@ weights before an accelerator uses them, compared in area and model-load time:
   the system bus.
 
 Baselines: no protection, and software AES on CVA6. Proposal:
-`docs/proposal/`. Results and report: `experiments/results/`, `docs/report/`.
+`docs/proposal/`. Results: `experiments/results/summary.md`.
 
 Honours research project, IIIT Hyderabad.
+
+## Status (16 November 2026)
+
+Measured so far, with 4 KB tiles (details in `experiments/results/summary.md`):
+
+| Method | Check + decrypt (cycles/byte) | Added logic area |
+|---|---:|---:|
+| Software AES | 141 | none |
+| A: Zkne in CVA6 | 9.6 | 6.6 kGE (1.8 % of CVA6 logic) |
+| B: OpenTitan AES + DMA, unmasked | 2.7 | 51.7 kGE |
+| B: OpenTitan AES + DMA, masked | 7.5 | not synthesized yet |
+
+Still to run (the workstation was needed by others):
+
+    scripts/cva6_sim.sh run build/sw/cva6/mlp_l_t4096_sw/loader.elf mlp_l_t4096_sw   # software AES, 1 MB model, ~2.5 h
+    for d in cva6_zkn engine_masked zkne_unit; do scripts/synth.sh $d; done
+    scripts/synth.sh cva6_base 2.5 && scripts/synth.sh cva6_zkne 2.5                 # Fmax with and without Zkne
+    python3 experiments/report.py
+
+Then the written report (not started).
 
 ## What is measured, and on what
 
@@ -26,7 +46,6 @@ not simulated: one DMA copy stands in for "off-chip memory to L2" and one for
 | Path | Contents |
 |------|----------|
 | `docs/proposal` | Research proposal |
-| `docs/report` | Final report (PDF and source) |
 | `docs/workstation.md` | Lab workstation notes (tools, paths) |
 | `env/setup.sh` | Environment setup (tool paths, Python env) |
 | `deps/` | Pinned upstream commits (CVA6, OpenTitan) |
