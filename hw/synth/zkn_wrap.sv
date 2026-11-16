@@ -76,18 +76,3 @@ module zkn_wrap
 
   assign result_o = result_q;
 endmodule
-
-// The full Zkn unit, as CVA6 has it (a separate top so synthesis needs no
-// parameter override).
-module zkn_full (
-  input  logic               clk_i,
-  input  logic               rst_ni,
-  input  ariane_pkg::fu_op   op_i,
-  input  logic [63:0]        operand_a_i,
-  input  logic [63:0]        operand_b_i,
-  input  logic [63:0]        imm_i,
-  input  logic [5:0]         orig_instr_i,
-  output logic [63:0]        result_o
-);
-  zkn_wrap #(.ZkneOnly(1'b0)) i_zkn (.zkne_sel_i(2'b00), .*);
-endmodule

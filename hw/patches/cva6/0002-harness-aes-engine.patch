@@ -1,0 +1,157 @@
+# Test harness changes, all behind defines (off by default):
+#   MOCK_UART   use the mock UART (instant $write) instead of the 115200-baud UART
+#   AES_ENGINE  put the two AES engines (hw/engine: OpenTitan AES + DMA, unmasked
+#               and masked) in the GPIO slot at 0x4000_0000, give each a master
+#               port on the AXI crossbar, and grow the memory to 16 MB
+#   NO_TRACE    do not write instruction traces (about 100 bytes per instruction)
+
+diff --git a/common/local/util/instr_tracer.sv b/common/local/util/instr_tracer.sv
+index dad2f29..0f770cb 100644
+--- a/common/local/util/instr_tracer.sv
++++ b/common/local/util/instr_tracer.sv
+@@ -299,11 +299,13 @@ module instr_tracer #(
+   endfunction
+ 
+ 
++`ifndef NO_TRACE  // the trace files grow by about 100 bytes per instruction
+   initial begin
+     #15ns;
+     create_file(hart_id_i);
+     trace();
+   end
++`endif
+ 
+   final begin
+     close();
+diff --git a/corev_apu/instr_tracing/ITI/cva6_iti/iti.sv b/corev_apu/instr_tracing/ITI/cva6_iti/iti.sv
+index c8f6953..24eac74 100644
+--- a/corev_apu/instr_tracing/ITI/cva6_iti/iti.sv
++++ b/corev_apu/instr_tracing/ITI/cva6_iti/iti.sv
+@@ -31,7 +31,11 @@ module cva6_iti #(
+   // pragma translate_off
+   int f;
+   initial begin
++`ifdef NO_TRACE
++    f = $fopen("/dev/null", "w");
++`else
+     f = $fopen("iti.traces", "w");
++`endif
+     $fwrite(f, "itype_0,cause,tval,priv,iaddr_0,context,ctype,iretire_0,ilastsize_0\n");
+   end
+   final $fclose(f);
+diff --git a/corev_apu/instr_tracing/rv_encapsulator-main/src/rtl/encapsulator.sv b/corev_apu/instr_tracing/rv_encapsulator-main/src/rtl/encapsulator.sv
+index e93c8ba..2ce5f28 100644
+--- a/corev_apu/instr_tracing/rv_encapsulator-main/src/rtl/encapsulator.sv
++++ b/corev_apu/instr_tracing/rv_encapsulator-main/src/rtl/encapsulator.sv
+@@ -37,7 +37,11 @@ module encapsulator (
+   // pragma translate_off
+   int f;
+   initial begin
++`ifdef NO_TRACE
++    f = $fopen("/dev/null", "w");
++`else
+     f = $fopen("encaps.traces", "w");
++`endif
+   end
+   final $fclose(f);
+   // pragma translate_on
+diff --git a/corev_apu/tb/ariane_soc_pkg.sv b/corev_apu/tb/ariane_soc_pkg.sv
+index 7785485..6f21031 100644
+--- a/corev_apu/tb/ariane_soc_pkg.sv
++++ b/corev_apu/tb/ariane_soc_pkg.sv
+@@ -17,7 +17,11 @@ package ariane_soc;
+   localparam int unsigned NumSources = 30;
+   localparam int unsigned MaxPriority = 7;
+ 
++`ifdef AES_ENGINE
++  localparam NrSlaves = 4; // CVA6, debug module, two AES engine DMAs
++`else
+   localparam NrSlaves = 2; // actually masters, but slaves on the crossbar
++`endif
+ 
+   typedef enum int unsigned {
+     DRAM     = 0,
+diff --git a/corev_apu/tb/ariane_tb.sv b/corev_apu/tb/ariane_tb.sv
+index 22e3276..9916ec2 100644
+--- a/corev_apu/tb/ariane_tb.sv
++++ b/corev_apu/tb/ariane_tb.sv
+@@ -54,7 +54,11 @@ module ariane_tb;
+     // toggle with RTC period
+     localparam int unsigned RTC_CLOCK_PERIOD = 30.517us;
+ 
++`ifdef AES_ENGINE
++    localparam NUM_WORDS = 2**21;  // 16 MB: program + model image + buffers
++`else
+     localparam NUM_WORDS = 2**18;
++`endif
+     logic clk_i;
+     logic rst_ni;
+     logic rtc_i;
+diff --git a/corev_apu/tb/ariane_testharness.sv b/corev_apu/tb/ariane_testharness.sv
+index 6e1d7a2..1645e29 100644
+--- a/corev_apu/tb/ariane_testharness.sv
++++ b/corev_apu/tb/ariane_testharness.sv
+@@ -375,6 +375,23 @@ module ariane_testharness #(
+   // GPIO
+   // ------------------------------
+ 
++`ifdef AES_ENGINE
++  // Option B: OpenTitan AES + DMA in the GPIO slot (0x4000_0000), unmasked and
++  // masked variant, each with its own master port on the crossbar.
++  // See hw/engine/ in the project repository.
++  aes_engine_axi #(
++    .AxiAddrWidth ( AXI_ADDRESS_WIDTH            ),
++    .AxiDataWidth ( AXI_DATA_WIDTH               ),
++    .AxiIdWidth   ( ariane_axi_soc::IdWidthSlave ),
++    .AxiUserWidth ( AXI_USER_WIDTH               )
++  ) i_aes_engine (
++    .clk_i        ( clk_i                    ),
++    .rst_ni       ( ndmreset_n               ),
++    .cfg          ( master[ariane_soc::GPIO] ),
++    .dma_unmasked ( slave[2]                 ),
++    .dma_masked   ( slave[3]                 )
++  );
++`else
+   // GPIO not implemented, adding an error slave here
+ 
+   ariane_axi_soc::req_slv_t  gpio_req;
+@@ -392,6 +409,7 @@ module ariane_testharness #(
+     .slv_req_i  ( gpio_req ),
+     .slv_resp_o ( gpio_resp )
+   );
++`endif
+ 
+ 
+   // ------------------------------
+@@ -583,10 +601,12 @@ module ariane_testharness #(
+     .AxiDataWidth ( AXI_DATA_WIDTH               ),
+     .AxiIdWidth   ( ariane_axi_soc::IdWidthSlave ),
+     .AxiUserWidth ( AXI_USER_WIDTH               ),
+-`ifndef VERILATOR
+-    .InclUART     ( 1'b1                     ),
+-`else
++`ifdef VERILATOR
+     .InclUART     ( 1'b0                     ),
++`elsif MOCK_UART
++    .InclUART     ( 1'b0                     ),  // mock UART: prints with $write, no baud delay
++`else
++    .InclUART     ( 1'b1                     ),
+ `endif
+     .InclSPI      ( 1'b0                     ),
+     .InclEthernet ( 1'b0                     )
+diff --git a/corev_apu/tb/rvfi_tracer.sv b/corev_apu/tb/rvfi_tracer.sv
+index 1fdd099..176dc28 100644
+--- a/corev_apu/tb/rvfi_tracer.sv
++++ b/corev_apu/tb/rvfi_tracer.sv
+@@ -42,7 +42,11 @@ module rvfi_tracer #(
+   int unsigned SIM_FINISH;
+   initial begin
+     TOHOST_ADDR = '0;
++`ifdef NO_TRACE
++    f = $fopen("/dev/null", "w");  // still watches tohost to end the test
++`else
+     f = $fopen($sformatf("trace_rvfi_hart_%h.dasm", HART_ID), "w");
++`endif
+     if (!$value$plusargs("time_out=%d", SIM_FINISH)) SIM_FINISH = 2000000;
+     if (!$value$plusargs("tohost_addr=%h", TOHOST_ADDR)) TOHOST_ADDR = '0;
+     if (TOHOST_ADDR == '0) begin
