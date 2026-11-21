@@ -1,0 +1,47 @@
+\documentclass[10pt]{article}
+\usepackage[a4paper,margin=20mm]{geometry}
+\usepackage{booktabs,graphicx}
+\graphicspath{{../../experiments/results/}}
+\title{ISE vs.\ AES Engine for Model Protection on RISC-V}
+\author{Gaurav, IIIT Hyderabad}
+\date{November 2026}
+\begin{document}
+\maketitle
+
+\paragraph{Question.} Decrypt (AES-128-CTR) and authenticate (AES-CMAC) NN weights before an accelerator uses them:
+(A) Zkne instructions in the CVA6 host, or (B) OpenTitan AES with a DMA on the system bus?
+
+\paragraph{Setup.} Upstream CVA6 (RV64GC + Zkn) in its VCS test harness; Option B added as AXI masters
+(unmasked and masked OpenTitan AES, our DMA with an AES streaming mode). Int8 MNIST models of 12\,KB, 102\,KB and 1.07\,MB
+(97.8--98.5\,\% accuracy), 4\,KB tiles, tag per tile. Area: Genus, TSMC 65\,nm LP, 4\,ns clock, logic only.
+All 24 runs decrypt correctly, reject a flipped bit, and reproduce the reference inference outputs.
+
+\begin{table}[h]\centering
+\begin{tabular}{lrrr}\toprule
+Method & Check+decrypt (cyc/B) & CPU busy (cyc/B) & Added area (kGE)\\\midrule
+Software AES & 141 & 141 & 0\\
+A: Zkne & 9.6 & 9.6 & 5.9\\
+B: engine, unmasked & 2.7 & 0.40 & 51.7\\
+B: engine, masked & 7.5 & 0.44 & 106.1\\\bottomrule
+\end{tabular}
+\caption{102\,KB and 1.07\,MB models give the same cycles/byte. Zkne area is the Zkn unit alone (1.6\,\% of CVA6's 374\,kGE).}
+\end{table}
+
+\paragraph{Findings.}
+\begin{itemize}\itemsep0pt
+\item B is $3.6\times$ (unmasked) / $1.3\times$ (masked) faster than A, beyond tiles of 130\,B / 470\,B.
+\item B frees the CPU (0.4 vs.\ 9.6 busy cycles/byte); A uses the whole core.
+\item A costs $9\times$ less area; it gives $2\times$ the throughput per kGE of the unmasked engine and $12\times$ that of the masked one.
+\item Zkne does not limit Fmax: CVA6 meets 400\,MHz with and without it.
+\end{itemize}
+
+\begin{figure}[h]\centering
+\includegraphics[width=0.75\linewidth]{break_even.png}
+\caption{Which option keeps up, by model size and reload rate (250\,MHz).}
+\end{figure}
+
+\paragraph{Conclusion.} Zkne suits small or rarely reloaded models (under $\sim$2.7\,MB/s at 10\,\% CPU);
+a dedicated engine is needed for large or frequently reloaded models, or when the CPU must stay free.
+
+\paragraph{Limits.} No PULP cluster or HyperRAM (DMA copies stand in); Zkne is unmasked; whole-core area varies by 1--2\,kGE between runs.
+\end{document}
