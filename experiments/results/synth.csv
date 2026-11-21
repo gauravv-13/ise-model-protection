@@ -1,5 +1,10 @@
 design,period_ns,area_um2,kge,slack_ns
 cva6_base,4.0,538305,373.8,0.0
+cva6_base,2.5,578199,401.5,0.0
+cva6_zkn,4.0,546022,379.2,0.0
 cva6_zkne,4.0,547860,380.5,0.0
+cva6_zkne,2.5,575557,399.7,0.0
 dma,4.0,19927,13.8,1.446
+engine_masked,4.0,152730,106.1,0.0
 engine_unmasked,4.0,74458,51.7,0.0
+zkne_unit,4.0,8520,5.9,1.211
