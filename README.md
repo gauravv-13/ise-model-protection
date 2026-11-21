@@ -12,25 +12,32 @@ Baselines: no protection, and software AES on CVA6. Proposal:
 
 Honours research project, IIIT Hyderabad.
 
-## Status (16 November 2026)
+## Results (22 November 2026)
 
-Measured so far, with 4 KB tiles (details in `experiments/results/summary.md`):
+All 24 load measurements pass (decrypted model matches, flipped bit rejected,
+int8 inference gives the expected outputs). With 4 KB tiles (details and
+charts in `experiments/results/`):
 
-| Method | Check + decrypt (cycles/byte) | Added logic area |
-|---|---:|---:|
-| Software AES | 141 | none |
-| A: Zkne in CVA6 | 9.6 | 6.6 kGE (1.8 % of CVA6 logic) |
-| B: OpenTitan AES + DMA, unmasked | 2.7 | 51.7 kGE |
-| B: OpenTitan AES + DMA, masked | 7.5 | not synthesized yet |
+| Method | Check + decrypt (cycles/byte) | CPU busy (cycles/byte) | Added logic area (65 nm) |
+|---|---:|---:|---:|
+| Software AES | 141 | 141 | none |
+| A: Zkne in CVA6 | 9.6 | 9.6 | 5.9 kGE (Zkn unit alone; 1.6 % of CVA6 logic) |
+| B: OpenTitan AES + DMA, unmasked | 2.7 | 0.40 | 51.7 kGE (DMA 13.8) |
+| B: OpenTitan AES + DMA, masked | 7.5 | 0.44 | 106.1 kGE (DMA 13.8) |
 
-Still to run (the workstation was needed by others):
+- Option B is faster than A once a tile holds more than about 130 bytes
+  (unmasked) or 470 bytes (masked), and keeps the CPU almost free.
+- Option A gives about twice the throughput per added kGE of the unmasked
+  engine (16.1 vs 8.6 bytes per 1000 cycles per kGE), and 12x the masked one.
+- Fmax: CVA6 meets 2.5 ns (400 MHz) with and without Zkne; the critical path
+  at 2.5 ns does not go through the AES unit. Higher clocks were not tried.
+- Area of whole-CVA6 runs varies by 1 to 2 kGE between synthesis runs
+  (CVA6 with full Zkn came out 1.3 kGE smaller than with Zkne only), so the
+  added area of Zkne is taken from the Zkn unit synthesized alone (5.9 kGE,
+  including about 200 wrapper registers); the CVA6 difference (6.6 kGE)
+  agrees with it.
 
-    scripts/cva6_sim.sh run build/sw/cva6/mlp_l_t4096_sw/loader.elf mlp_l_t4096_sw   # software AES, 1 MB model, ~2.5 h
-    for d in cva6_zkn engine_masked zkne_unit; do scripts/synth.sh $d; done
-    scripts/synth.sh cva6_base 2.5 && scripts/synth.sh cva6_zkne 2.5                 # Fmax with and without Zkne
-    python3 experiments/report.py
-
-Then the written report (not started).
+Not done: the written report.
 
 ## What is measured, and on what
 

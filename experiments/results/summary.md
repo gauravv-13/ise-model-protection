@@ -30,9 +30,10 @@ on crypto (for the engine: set-up and tag check, not the wait).
 | MLP 784-128-10 | B: OpenTitan AES + DMA, unmasked | 349,073 | 273,852 | 2.68 | 40,600 | 52.6x | 3.58x |
 | MLP 784-128-10 | B: OpenTitan AES + DMA, masked | 840,078 | 764,863 | 7.48 | 44,675 | 18.8x | 1.28x |
 | MLP 784-1024-256-10 | No protection (copy only) | 782,399 | 0 | 0.00 | 0 | - | - |
-| MLP 784-1024-256-10 | A: Zkne instructions | 11,066,791 | 10,277,056 | 9.58 | 10,277,056 | - | 1.00x |
-| MLP 784-1024-256-10 | B: OpenTitan AES + DMA, unmasked | 3,660,471 | 2,872,046 | 2.68 | 425,488 | - | 3.58x |
-| MLP 784-1024-256-10 | B: OpenTitan AES + DMA, masked | 8,811,526 | 8,021,541 | 7.48 | 466,894 | - | 1.28x |
+| MLP 784-1024-256-10 | Software AES (baseline) | 151,768,347 | 150,978,922 | 140.73 | 150,978,922 | 1.0x | 0.07x |
+| MLP 784-1024-256-10 | A: Zkne instructions | 11,066,791 | 10,277,056 | 9.58 | 10,277,056 | 14.7x | 1.00x |
+| MLP 784-1024-256-10 | B: OpenTitan AES + DMA, unmasked | 3,660,471 | 2,872,046 | 2.68 | 425,488 | 52.6x | 3.58x |
+| MLP 784-1024-256-10 | B: OpenTitan AES + DMA, masked | 8,811,526 | 8,021,541 | 7.48 | 466,894 | 18.8x | 1.28x |
 
 ## Tile size (100 KB model): check + decrypt, cycles/byte
 
@@ -48,9 +49,14 @@ on crypto (for the engine: set-up and tag check, not the wait).
 | Design | Clock (ns) | Area (um^2) | kGE | Slack (ns) |
 |---|---:|---:|---:|---:|
 | cva6_base | 4 | 538,305 | 373.8 | +0.000 |
+| cva6_base | 2.5 | 578,199 | 401.5 | +0.000 |
+| cva6_zkn | 4 | 546,022 | 379.2 | +0.000 |
 | cva6_zkne | 4 | 547,860 | 380.5 | +0.000 |
+| cva6_zkne | 2.5 | 575,557 | 399.7 | +0.000 |
 | dma | 4 | 19,927 | 13.8 | +1.446 |
+| engine_masked | 4 | 152,730 | 106.1 | +0.000 |
 | engine_unmasked | 4 | 74,458 | 51.7 | +0.000 |
+| zkne_unit | 4 | 8,520 | 5.9 | +1.211 |
 
 ## Cost model, fitted to the measurements
 
@@ -58,7 +64,7 @@ Check + decrypt cycles = a x (16-byte blocks) + b x (tiles), least squares over 
 
 | Method | a: cycles per block | cycles per byte | b: cycles per tile |
 |---|---:|---:|---:|
-| Software AES (baseline) | 2248.3 | 140.52 | 1,409 |
+| Software AES (baseline) | 2239.0 | 139.94 | 3,267 |
 | A: Zkne instructions | 150.1 | 9.38 | 824 |
 | B: OpenTitan AES + DMA, unmasked | 36.0 | 2.25 | 1,753 |
 | B: OpenTitan AES + DMA, masked | 112.0 | 7.00 | 1,945 |
@@ -76,4 +82,5 @@ B: OpenTitan AES + DMA, masked (T_B = max(S/BW_mem, N_blk/Theta_eng) + c_setup):
 - Area: Zkne adds 6.6 kGE to CVA6 (1.77 % of the 374 kGE core logic); the unmasked engine with DMA is 51.7 kGE, 7.8x as much.
   - A: Zkne: 16.1 bytes per 1000 cycles per added kGE
   - B: engine: 8.6 bytes per 1000 cycles per added kGE
+  - B: engine, masked: 1.3 bytes per 1000 cycles per added kGE
 - CPU: with Zkne the CPU does all the work, 9.38 cycles per byte. At 250 MHz that is 26.7 MB/s with the whole CPU, 2.67 MB/s with 10 % of it. Beyond that load rate (model size x reloads per second) the engine is the only option.
