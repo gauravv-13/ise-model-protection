@@ -7,8 +7,8 @@ weights before an accelerator uses them, compared in area and model-load time:
 - **Option B**: a dedicated AES engine, the OpenTitan AES block with a DMA on
   the system bus.
 
-Baselines: no protection, and software AES on CVA6. Proposal:
-`docs/proposal/`. Results: `experiments/results/summary.md`.
+Baselines: no protection, and software AES on CVA6.
+Results: `experiments/results/summary.md`.
 
 Honours research project, IIIT Hyderabad.
 
@@ -52,7 +52,6 @@ not simulated: one DMA copy stands in for "off-chip memory to L2" and one for
 
 | Path | Contents |
 |------|----------|
-| `docs/proposal` | Research proposal |
 | `docs/workstation.md` | Lab workstation notes (tools, paths) |
 | `env/setup.sh` | Environment setup (tool paths, Python env) |
 | `deps/` | Pinned upstream commits (CVA6, OpenTitan) |
