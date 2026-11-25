@@ -8,7 +8,7 @@ weights before an accelerator uses them, compared in area and model-load time:
   the system bus.
 
 Baselines: no protection, and software AES on CVA6.
-Results: `experiments/results/summary.md`.
+Results: `experiments/results/summary.md`. Report: `docs/report/report.tex`.
 
 Honours research project, IIIT Hyderabad.
 
@@ -37,7 +37,6 @@ charts in `experiments/results/`):
   including about 200 wrapper registers); the CVA6 difference (6.6 kGE)
   agrees with it.
 
-Not done: the written report.
 
 ## What is measured, and on what
 
