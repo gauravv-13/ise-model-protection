@@ -1,22 +1,52 @@
 \documentclass[10pt]{article}
-\usepackage[a4paper,margin=20mm]{geometry}
+\usepackage[a4paper,margin=18mm]{geometry}
 \usepackage{booktabs,graphicx}
+\usepackage[skip=3pt]{caption}
 \graphicspath{{../../experiments/results/}}
-\title{Software AES vs.\ Zkne vs.\ AES Engine for Model Protection on RISC-V}
+\setlength{\parskip}{2pt}
+\title{Software AES vs.\ Zkne vs.\ AES Engine for Model Protection on RISC-V\\\large Progress report}
 \author{Gaurav, IIIT Hyderabad}
 \date{November 2026}
 \begin{document}
 \maketitle
+\vspace{-6mm}
 
 \paragraph{Question.} Neural-network weights must be decrypted (AES-128-CTR) and authenticated (AES-CMAC) before an
-accelerator uses them. What does each of three ways cost in time, CPU and area:
-software AES on the CVA6 host, (A) Zkne AES instructions in CVA6, or (B) OpenTitan AES with a DMA on the system bus?
+accelerator uses them. What does each of three ways cost in time, CPU and area: software AES on the CVA6 host,
+(A) Zkne AES instructions in CVA6, or (B) a dedicated engine, OpenTitan AES with a DMA on the system bus?
 
-\paragraph{Setup.} Upstream CVA6 (RV64GC + Zkn) in its VCS test harness; Option B added as AXI masters
-(unmasked and masked OpenTitan AES, our DMA with an AES streaming mode). Int8 MNIST models of 12\,KB, 102\,KB and 1.07\,MB
-(97.8--98.5\,\% accuracy), 4\,KB tiles, tag per tile. Area: Genus, TSMC 65\,nm LP, 4\,ns clock, logic only.
-All 24 runs decrypt correctly, reject a flipped bit, and reproduce the reference inference outputs.
+\section*{Work done}
+About 3{,}200 lines of our own RTL, C/assembly, Python and scripts; upstream code is fetched at pinned commits and changed only through patches.
 
+\begin{itemize}\itemsep1pt
+\item \textbf{Platform.} Carfield's CVA6 has no Zkn and Carfield needs QuestaSim, which the lab does not have, so upstream CVA6
+  (RV64GC + Zkn) runs in its own VCS test harness. Four CVA6 patches: a VCS U-2023 compatibility fix; harness options
+  (AES engines on the AXI crossbar, 16\,MB memory, instant UART, no instruction traces, exit on \texttt{tohost});
+  device range marked non-idempotent so CVA6 never reads AES registers speculatively; a Zkne-only option for synthesis.
+\item \textbf{Option A (Zkne).} Hand-written RV64 assembly tile routine: CMAC and CTR run interleaved in one pass, each
+  round 4 round-key loads, 4 \texttt{aes64esm}, 4 XORs. Uses only the four Zkne instructions.
+\item \textbf{Option B (engine).} New DMA (\texttt{aes\_dma.sv}, AXI4 master) with three modes: copy, AES (data streamed
+  through the AES block) and sink (CBC-MAC, output dropped). It drives the unmodified OpenTitan AES through its normal
+  registers. Built unmasked (Canright S-box) and masked (OpenTitan default, as in Carfield's security island).
+  Two passes per tile: CBC-MAC, then CTR. Unit testbench checks all three modes (AES mode against the FIPS-197 vector).
+\item \textbf{Baselines and workloads.} Software AES (T-tables) and an unprotected copy. Three int8 MNIST models trained
+  and quantized in NumPy (tiny CNN 12\,KB; MLPs 102\,KB and 1.07\,MB; 97.8--98.5\,\% accuracy). Packer that splits a model
+  into tiles (header, ciphertext, CMAC tag) and a Python AES/CMAC reference.
+\item \textbf{Load flow per tile.} DMA copy off-chip $\to$ L2, CMAC check, CTR decrypt in place, DMA copy L2 $\to$ L1
+  (the copies stand in for HyperRAM and the PULP cluster DMA).
+\item \textbf{Verification.} Every run checks that the decrypted model matches the original, that a flipped bit is
+  rejected, and that int8 inference (bit-exact with the Python model) gives the expected outputs (on CVA6; on Spike for
+  software AES). All 24 runs pass.
+\item \textbf{Measurement.} \texttt{mcycle} counts, warm-cache second load. 15 main runs (3 models $\times$ 5 methods)
+  plus a tile-size sweep (1--64\,KB); the 1\,MB software run alone takes 2.5\,h of simulation.
+  Found and fixed: the simulated debugger halted the core and stopped \texttt{mcycle}, under-counting engine time.
+\item \textbf{Synthesis.} Genus, TSMC 65\,nm LP, typical corner, logic only (cache SRAMs black-boxed). Nine designs:
+  CVA6 without Zkn, with Zkne only and with full Zkn (4\,ns and 2.5\,ns), the Zkn unit alone, the DMA alone, and both engines.
+\item \textbf{Analysis.} Report script producing all tables and charts, a least-squares cost model
+  (cycles per block + cycles per tile) and break-even points.
+\end{itemize}
+
+\section*{Results}
 \begin{table}[h]\centering\small
 \begin{tabular}{lrrrr}\toprule
 Method & Check+decrypt (cyc/B) & vs.\ software & CPU busy (cyc/B) & Area (kGE)\\\midrule
@@ -25,30 +55,31 @@ A: Zkne & 9.6 & $14.7\times$ & 9.6 & 5.9\\
 B: engine, unmasked & 2.7 & $52.6\times$ & 0.40 & 51.7\\
 B: engine, masked & 7.5 & $18.8\times$ & 0.44 & 106.1\\\bottomrule
 \end{tabular}
-\caption{4\,KB tiles; speed-ups are for the 102\,KB and 1.07\,MB models, which give the same cycles/byte.
-Zkne area is the Zkn unit alone (1.6\,\% of CVA6's 374\,kGE). Engine area includes the 13.8\,kGE DMA.}
+\caption{4\,KB tiles, 102\,KB and 1.07\,MB models (same cycles/byte). Zkne area is the Zkn unit alone
+(1.6\,\% of CVA6's 374\,kGE); engine area includes the 13.8\,kGE DMA. Area at 4\,ns.}
 \end{table}
 
-\paragraph{Findings.}
-\begin{itemize}\itemsep0pt
-\item Software AES is too slow to be practical: 141 cycles/byte, all of it on the CPU.
-\item Zkne gives a $14.7\times$ speed-up over software for 5.9\,kGE, but still uses the whole core while it runs.
-\item The engine is fastest: $3.6\times$ (unmasked) / $1.3\times$ (masked) faster than Zkne once tiles exceed 130\,B / 470\,B,
-  and it frees the CPU (0.4 vs.\ 9.6 busy cycles/byte).
-\item Zkne costs $9\times$ less area than the unmasked engine and gives $2\times$ its throughput per kGE ($12\times$ that of the masked engine).
-\item Small tiles hurt the engine more than Zkne (1\,KB vs.\ 64\,KB tiles: 3.96 vs.\ 2.28 cyc/B for the engine, 10.2 vs.\ 9.4 for Zkne),
-  because each tile costs about 1{,}750 cycles of engine set-up.
-\item Zkne does not limit Fmax: CVA6 meets 400\,MHz with and without it.
+\begin{itemize}\itemsep1pt
+\item Software AES costs 141 cycles/byte, all on the CPU.
+\item Zkne gives $14.7\times$ over software for 5.9\,kGE, but keeps the whole core busy. Per 16-byte block: 40 AES
+  instructions (43 cycles) plus about 110 cycles of key loads, XORs and data movement.
+\item The engine is $3.6\times$ (unmasked) / $1.3\times$ (masked) faster than Zkne once tiles exceed 130\,B / 470\,B,
+  and frees the CPU (0.4 vs.\ 9.6 busy cycles/byte). Each tile costs about 1{,}750 cycles of set-up, so small tiles
+  hurt it more (1\,KB vs.\ 64\,KB tiles: 3.96 vs.\ 2.28 cyc/B; Zkne 10.2 vs.\ 9.4).
+\item Zkne costs $9\times$ less area than the unmasked engine and gives $2\times$ its throughput per kGE ($12\times$ the masked one).
+\item Zkne does not limit Fmax: CVA6 meets 2.5\,ns (400\,MHz) with and without it.
 \end{itemize}
 
 \begin{figure}[h]\centering
-\includegraphics[width=0.75\linewidth]{break_even.png}
+\includegraphics[width=0.62\linewidth]{break_even.png}
 \caption{Which option keeps up, by model size and reload rate (250\,MHz).}
 \end{figure}
 
-\paragraph{Conclusion.} Software AES is only an option when area is fixed and models are loaded rarely.
+\paragraph{Conclusion.} Software AES is only an option when no area can be added and models are loaded rarely.
 Zkne is the cheap choice for small or rarely reloaded models (under $\sim$2.7\,MB/s at 10\,\% CPU);
 a dedicated engine is needed for large or frequently reloaded models, or when the CPU must stay free.
 
-\paragraph{Limits.} No PULP cluster or HyperRAM (DMA copies stand in); Zkne is unmasked; whole-core area varies by 1--2\,kGE between runs.
+\paragraph{Limits.} No PULP cluster or HyperRAM (DMA copies stand in); Zkne and the unmasked engine have no side-channel
+protection, only the masked engine does; whole-core area varies by 1--2\,kGE between synthesis runs, so Zkne's area is
+taken from the unit alone (the CVA6 difference, 6.6\,kGE, agrees).
 \end{document}
