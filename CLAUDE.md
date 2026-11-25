@@ -7,7 +7,7 @@ decrypt (AES-CTR) and authenticate (AES-CMAC) neural-network weights before an
 accelerator uses them: (A) Zkne AES instructions in the CVA6 host, (B) a
 dedicated engine, OpenTitan AES + DMA on the system bus. Metrics: added area,
 Fmax, model-load time, CPU busy time. Baselines: no protection, software AES.
-Proposal: `docs/proposal/`. Honours research project, IIIT Hyderabad.
+Proposal: `docs/proposal/` (local only, git-ignored). Honours research project, IIIT Hyderabad.
 
 Platform as built: upstream CVA6 (has Zkn) in its own VCS test harness, with
 the engines added as AXI masters. Carfield's CVA6 has no Zkn and Carfield needs
