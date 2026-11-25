@@ -45,3 +45,6 @@ logs/
 
 # Upstream code fetched by scripts (CVA6 and OpenTitan AES)
 third_party/
+
+# Proposal (kept locally, not published)
+docs/proposal/
