@@ -43,5 +43,5 @@ bulk/
 # Command output logs (local only)
 logs/
 
-# Upstream code fetched by scripts (Carfield and its dependencies)
+# Upstream code fetched by scripts (CVA6 and OpenTitan AES)
 third_party/
